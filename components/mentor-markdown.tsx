@@ -6,23 +6,23 @@ import remarkGfm from "remark-gfm";
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
-    <h3 className="mb-2 mt-4 text-base font-semibold text-slate-900 first:mt-0">{children}</h3>
+    <h3 className="mb-2 mt-4 text-base font-semibold text-slate-100 first:mt-0">{children}</h3>
   ),
   h2: ({ children }) => (
-    <h3 className="mb-2 mt-4 text-base font-semibold text-slate-900 first:mt-0">{children}</h3>
+    <h3 className="mb-2 mt-4 text-base font-semibold text-slate-100 first:mt-0">{children}</h3>
   ),
   h3: ({ children }) => (
-    <h4 className="mb-2 mt-3 text-sm font-semibold text-slate-900 first:mt-0">{children}</h4>
+    <h4 className="mb-2 mt-3 text-sm font-semibold text-slate-100 first:mt-0">{children}</h4>
   ),
   h4: ({ children }) => (
-    <h5 className="mb-1 mt-3 text-sm font-semibold text-slate-800 first:mt-0">{children}</h5>
+    <h5 className="mb-1 mt-3 text-sm font-semibold text-slate-200 first:mt-0">{children}</h5>
   ),
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-6 text-slate-700">{children}</p>,
-  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 text-slate-700 last:mb-0">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 text-slate-700 last:mb-0">{children}</ol>,
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-6 text-slate-200/90">{children}</p>,
+  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 text-slate-200/90 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 text-slate-200/90 last:mb-0">{children}</ol>,
   li: ({ children }) => <li className="leading-6">{children}</li>,
-  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
-  em: ({ children }) => <em className="italic text-slate-700">{children}</em>,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic text-slate-300">{children}</em>,
   code: ({ className, children, ...props }) => {
     const isBlock = Boolean(className?.includes("language-"));
     if (isBlock) {
@@ -34,7 +34,7 @@ const markdownComponents: Components = {
     }
     return (
       <code
-        className="rounded bg-slate-200/80 px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-800"
+        className="rounded border border-white/10 bg-white/10 px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-100"
         {...props}
       >
         {children}
@@ -42,7 +42,7 @@ const markdownComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="mb-3 max-h-64 overflow-auto rounded-md border border-slate-200 bg-slate-900 p-3 last:mb-0">
+    <pre className="mb-3 max-h-64 overflow-auto rounded-lg border border-white/10 bg-black/25 p-3 last:mb-0 backdrop-blur-sm">
       {children}
     </pre>
   ),
@@ -51,15 +51,15 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="font-medium text-blue-700 underline decoration-blue-700/40 underline-offset-2 hover:text-blue-800"
+      className="font-medium text-blue-300 underline decoration-blue-300/40 underline-offset-2 hover:text-blue-200"
     >
       {children}
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="mb-3 border-l-2 border-slate-300 pl-3 text-slate-600 last:mb-0">{children}</blockquote>
+    <blockquote className="mb-3 border-l-2 border-white/20 pl-3 text-slate-300 last:mb-0">{children}</blockquote>
   ),
-  hr: () => <hr className="my-4 border-slate-200" />
+  hr: () => <hr className="my-4 border-white/15" />
 };
 
 type MentorMarkdownProps = {
@@ -68,7 +68,7 @@ type MentorMarkdownProps = {
 
 export function MentorMarkdown({ content }: MentorMarkdownProps) {
   return (
-    <div className="mentor-answer mt-4 max-h-[min(28rem,60vh)] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
+    <div className="mentor-markdown text-sm leading-relaxed">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {content}
       </ReactMarkdown>

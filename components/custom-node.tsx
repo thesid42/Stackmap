@@ -140,7 +140,7 @@ export function CustomArchitectureNode({
   
   return (
     <div
-      className={`group relative w-[238px] min-h-[168px] rounded-lg border-2 bg-white transition-all duration-300 ${
+      className={`group relative w-[238px] min-h-[168px] rounded-lg border-2 bg-white/80 shadow-[0_8px_32px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all duration-300 dark:bg-slate-900/70 dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)] ${
         selected
           ? `${style.borderSel} shadow-lg ring-4 ring-offset-1 ${
               type === "risk" ? "ring-rose-100" : "ring-blue-100"
@@ -189,24 +189,24 @@ export function CustomArchitectureNode({
             <Icon size={10} className="stroke-[2.5]" />
             {style.label}
           </span>
-          <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded-full">
+          <span className="inline-flex items-center gap-0.5 rounded-full border border-slate-100/80 bg-slate-50/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 backdrop-blur-sm dark:border-slate-600/50 dark:bg-slate-800/60 dark:text-slate-400">
             <FileCode size={9} />
             {files.length}
           </span>
         </div>
 
         {/* Title */}
-        <h4 className="mt-2 text-[14px] font-bold tracking-tight text-slate-900 line-clamp-1 group-hover:text-blue-600 transition-colors duration-200">
+        <h4 className="mt-2 line-clamp-1 text-[14px] font-bold tracking-tight text-slate-900 transition-colors duration-200 group-hover:text-blue-600 dark:text-slate-50 dark:group-hover:text-blue-400">
           {label}
         </h4>
 
         {/* Description / Summary */}
-        <p className="mt-1.5 text-[11px] leading-[15px] text-slate-500 line-clamp-2">
+        <p className="mt-1.5 line-clamp-2 text-[11px] leading-[15px] text-slate-500 dark:text-slate-400">
           {summary}
         </p>
 
         {/* Footer status indicator */}
-        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px]">
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100/80 pt-2 text-[10px] dark:border-slate-700/60">
           {risks && risks.length > 0 ? (
             <span className="inline-flex items-center gap-1 font-bold text-rose-600">
               <AlertTriangle size={11} className="animate-pulse" />
