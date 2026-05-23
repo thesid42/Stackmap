@@ -43,8 +43,23 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [error, setError] = useState("");
+
+  type JobPollResponse = {
+    jobId: string;
+    status: "processing" | "complete" | "failed";
+    progress?: string;
+    error?: string;
+    graph?: AnalysisResult["graph"];
+    tasks?: AnalysisResult["tasks"];
+    familiarity?: AnalysisResult["familiarity"];
+  };
+
+  function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   const selectedNode = analysis?.graph.nodes.find((node) => node.id === selectedNodeId) ?? analysis?.graph.nodes[0];
   const selectedTask = analysis?.tasks.find((task) => task.id === selectedTaskId) ?? analysis?.tasks[0];
@@ -96,10 +111,46 @@ export default function Home() {
     return { nodes, edges };
   }, [analysis]);
 
+  async function pollJob(jobId: string) {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const response = await fetch(`/api/jobs/${jobId}`);
+      if (!response.ok) {
+        setError("Analysis job not found.");
+        return;
+      }
+
+      const job = (await response.json()) as JobPollResponse;
+      setAnalyzeProgress(job.progress ?? "Processing...");
+
+      if (job.status === "failed") {
+        setError(job.error ?? "Analysis failed.");
+        return;
+      }
+
+      if (job.status === "complete" && job.graph && job.tasks && job.familiarity) {
+        const result: AnalysisResult = {
+          jobId,
+          graph: job.graph,
+          tasks: job.tasks,
+          familiarity: job.familiarity
+        };
+        setAnalysis(result);
+        setSelectedNodeId(result.graph.nodes[0]?.id ?? null);
+        setSelectedTaskId(result.tasks[0]?.id ?? null);
+        return;
+      }
+
+      await sleep(1500);
+    }
+
+    setError("Analysis timed out. Try a smaller public repository.");
+  }
+
   async function analyzeRepo() {
     setIsAnalyzing(true);
     setError("");
     setAnswer("");
+    setAnalyzeProgress("Starting analysis...");
 
     const response = await fetch("/api/analyze", {
       method: "POST",
@@ -108,16 +159,17 @@ export default function Home() {
     });
 
     if (!response.ok) {
-      setError("Could not analyze repo. Check the URL and try again.");
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      setError(body?.error ?? "Could not analyze repo. Check the URL and try again.");
       setIsAnalyzing(false);
+      setAnalyzeProgress("");
       return;
     }
 
-    const result = (await response.json()) as AnalysisResult;
-    setAnalysis(result);
-    setSelectedNodeId(result.graph.nodes[0]?.id ?? null);
-    setSelectedTaskId(result.tasks[0]?.id ?? null);
+    const started = (await response.json()) as { jobId: string; status: string };
+    await pollJob(started.jobId);
     setIsAnalyzing(false);
+    setAnalyzeProgress("");
   }
 
   async function updateTask(taskId: string, status: OnboardingTask["status"]) {
@@ -169,7 +221,7 @@ export default function Home() {
           </div>
           <div className="hidden items-center gap-2 text-sm text-slate-600 md:flex">
             <Bot size={16} />
-            Gemini managed-agent skeleton
+            Gemini multi-agent orchestration
           </div>
         </div>
       </header>
@@ -216,6 +268,7 @@ export default function Home() {
               {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />}
               {isAnalyzing ? "Running agents" : "Generate StackMap"}
             </button>
+            {analyzeProgress ? <p className="mt-3 text-sm text-slate-600">{analyzeProgress}</p> : null}
             {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
           </section>
 
@@ -264,7 +317,7 @@ export default function Home() {
                     <Map size={42} className="mx-auto text-slate-400" />
                     <h2 className="mt-4 text-xl font-semibold">Generate a codebase onboarding map</h2>
                     <p className="mt-2 max-w-lg text-sm leading-6 text-slate-600">
-                      The base skeleton uses sample data now. Replace the analyzer with GitHub ingestion and Gemini agents during the hackathon.
+                      Paste a public GitHub URL to clone, index, and analyze the repo with specialist Gemini agents. Use the demo URL for an instant sample graph.
                     </p>
                   </div>
                 </div>
@@ -286,6 +339,17 @@ export default function Home() {
                       {selectedNode.files.map((file) => (
                         <li key={file} className="rounded-md bg-slate-50 px-2 py-1">
                           {file}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold">Evidence</h4>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                      {selectedNode.evidence.map((item) => (
+                        <li key={`${item.file}-${item.reason}`} className="rounded-md bg-slate-50 px-2 py-2">
+                          <div className="font-medium text-slate-900">{item.file}</div>
+                          <div className="mt-1 text-slate-600">{item.reason}</div>
                         </li>
                       ))}
                     </ul>

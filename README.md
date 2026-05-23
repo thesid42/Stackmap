@@ -4,10 +4,10 @@ StackMap is an AI onboarding workspace for engineering teams. It turns a GitHub 
 
 ## Hackathon MVP
 
-- Paste a public GitHub repo URL
+- Paste a public GitHub repo URL (or use the built-in demo URL)
 - Select an onboarding role
-- Generate a repo/platform map
-- Create role-specific onboarding missions
+- Async analysis: clone → index → specialist Gemini agents → architecture graph
+- Role-specific onboarding missions with file evidence
 - Inspect services, files, evidence, and risks
 - Ask the mentor agent about the selected node or task
 - Mark tasks complete and update familiarity progress
@@ -16,28 +16,15 @@ StackMap is an AI onboarding workspace for engineering teams. It turns a GitHub 
 
 ```txt
 GitHub repo URL
-  -> Repo Ingestion Service
-  -> Code Indexer
-  -> Gemini Managed Agent Orchestrator
-  -> Architecture Graph Builder
-  -> Task Workflow Agent
-  -> StackMap Dashboard
+  → Repo Ingestion (shallow clone to OS temp)
+  → Code Indexer (monorepo service discovery, import hints)
+  → Gemini Agent Orchestrator (7 specialist agents in parallel)
+  → Architecture Graph Builder (merge + normalize)
+  → Knowledge Graph (.data/jobs JSON + in-memory)
+  → StackMap API + Dashboard
 ```
 
-## Current Skeleton
-
-The app currently uses realistic sample data so the product flow is demoable before real ingestion is wired. Replace `app/api/analyze/route.ts` with GitHub fetching, indexing, and Gemini agent execution.
-
-Important files:
-
-- `app/page.tsx` - main dashboard UI
-- `app/api/analyze/route.ts` - analysis endpoint
-- `app/api/chat/route.ts` - mentor chat endpoint
-- `app/api/tasks/route.ts` - task progress endpoint
-- `lib/types.ts` - core graph and onboarding task types
-- `lib/sample-data.ts` - demo graph and task output
-- `lib/repo-indexer.ts` - file classification helpers
-- `lib/agent-orchestrator.ts` - Gemini agent prompt plan
+Specialist agents: Service Discovery, Structure, API, Data, Dependency, Risk, Task Workflow.
 
 ## Run
 
@@ -46,8 +33,33 @@ npm install
 npm run dev
 ```
 
-Create `.env.local` when Gemini credentials are available:
+Create `.env.local`:
 
 ```bash
 GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemini-3.5-flash
+# STACKMAP_USE_SAMPLE=1   # force demo graph for any URL
 ```
+
+Requires `git` on PATH. Only public `github.com` repos are supported for live analysis.
+
+**Demo mode:** URLs matching `example/stackmap-demo` load the rich sample microservices graph instantly (no clone).
+
+## API
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/analyze` | POST | Start job `{ repoUrl, role }` → `{ jobId, status: "processing" }` |
+| `/api/jobs/[jobId]` | GET | Poll job status, graph, tasks, familiarity |
+| `/api/tasks` | POST | Update mission status |
+| `/api/chat` | POST | Mentor chat with graph context |
+
+## Key files
+
+- `lib/analyzer.ts` — async job pipeline
+- `lib/agent-orchestrator.ts` — parallel Gemini specialist agents
+- `lib/graph-builder.ts` — merge agent output + index fallbacks
+- `lib/repo-indexer.ts` — monorepo services, import hints
+- `lib/repo-scanner.ts` — clone + scan
+- `lib/analysis-store.ts` — job persistence under `.data/jobs/`
+- `app/page.tsx` — dashboard UI

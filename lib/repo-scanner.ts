@@ -7,6 +7,9 @@ import { classifyFile, detectLanguage, shouldIndexFile, type IndexedFile } from 
 
 const execFileAsync = promisify(execFile);
 
+/** All clones live under the OS temp directory and are removed after analysis. */
+const cloneTempPrefix = () => path.join(tmpdir(), "stackmap-clone-");
+
 const maxIndexedFiles = 500;
 const maxSnippetFiles = 55;
 const maxFileBytes = 180_000;
@@ -78,15 +81,18 @@ export function parseGitHubRepoUrl(repoUrl: string): RepoIdentity {
 
 export async function cloneRepository(repoUrl: string) {
   const repo = parseGitHubRepoUrl(repoUrl);
-  const parent = await mkdtemp(path.join(tmpdir(), "stackmap-"));
-  const rootPath = path.join(parent, repo.name);
+  const rootPath = await mkdtemp(cloneTempPrefix());
 
   await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", repo.cloneUrl, rootPath], {
     timeout: 90_000,
     maxBuffer: 1024 * 1024
   });
 
-  return { repo, rootPath, cleanup: () => rm(parent, { recursive: true, force: true }) };
+  return {
+    repo,
+    rootPath,
+    cleanup: () => rm(rootPath, { recursive: true, force: true })
+  };
 }
 
 export async function scanRepository(repo: RepoIdentity, rootPath: string): Promise<RepoScan> {

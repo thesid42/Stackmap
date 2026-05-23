@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { analyzeRepository } from "@/lib/analyzer";
-import { saveAnalysis } from "@/lib/analysis-store";
+import { startAnalysisJob } from "@/lib/analyzer";
 
 export const runtime = "nodejs";
 
@@ -19,24 +18,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await analyzeRepository(parsed.data.repoUrl, parsed.data.role);
-    saveAnalysis(result);
+    const { jobId } = await startAnalysisJob(parsed.data.repoUrl, parsed.data.role);
 
     return NextResponse.json({
-      jobId: result.jobId,
-      status: "complete",
-      graph: result.graph,
-      tasks: result.tasks,
-      familiarity: result.familiarity
+      jobId,
+      status: "processing"
     });
   } catch (error) {
-    console.error("Repository analysis failed.", error);
+    console.error("Failed to start analysis job.", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not analyze the repository. Check that it is a public GitHub repo."
+        error: error instanceof Error ? error.message : "Could not start analysis."
       },
       { status: 500 }
     );

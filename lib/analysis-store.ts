@@ -1,23 +1,161 @@
-import type { AnalysisResult, FamiliarityScore, OnboardingTask } from "@/lib/types";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { AnalysisResult, EngineerRole, FamiliarityScore, OnboardingTask, StackMapGraph } from "@/lib/types";
 
-const store = new Map<string, AnalysisResult>();
+export type JobStatus = "processing" | "complete" | "failed";
+
+export type JobRecord = {
+  jobId: string;
+  status: JobStatus;
+  repoUrl: string;
+  role: EngineerRole;
+  progress?: string;
+  error?: string;
+  graph?: StackMapGraph;
+  tasks?: OnboardingTask[];
+  familiarity?: FamiliarityScore;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const memory = new Map<string, JobRecord>();
+const dataDir = path.join(process.cwd(), ".data", "jobs");
+
+async function ensureDataDir() {
+  await mkdir(dataDir, { recursive: true });
+}
+
+function jobPath(jobId: string) {
+  return path.join(dataDir, `${jobId}.json`);
+}
+
+async function persistJob(job: JobRecord) {
+  memory.set(job.jobId, job);
+  try {
+    await ensureDataDir();
+    await writeFile(jobPath(job.jobId), JSON.stringify(job, null, 2), "utf8");
+  } catch (error) {
+    console.error("Failed to persist job", job.jobId, error);
+  }
+}
+
+async function loadJob(jobId: string): Promise<JobRecord | null> {
+  const cached = memory.get(jobId);
+  if (cached) return cached;
+
+  try {
+    const raw = await readFile(jobPath(jobId), "utf8");
+    const job = JSON.parse(raw) as JobRecord;
+    memory.set(jobId, job);
+    return job;
+  } catch {
+    return null;
+  }
+}
+
+export async function createJob(input: { jobId: string; repoUrl: string; role: EngineerRole }) {
+  const now = new Date().toISOString();
+  const job: JobRecord = {
+    jobId: input.jobId,
+    status: "processing",
+    repoUrl: input.repoUrl,
+    role: input.role,
+    progress: "Cloning repository...",
+    createdAt: now,
+    updatedAt: now
+  };
+  await persistJob(job);
+  return job;
+}
+
+export async function updateJobProgress(jobId: string, progress: string) {
+  const job = await loadJob(jobId);
+  if (!job) return null;
+  job.progress = progress;
+  job.updatedAt = new Date().toISOString();
+  await persistJob(job);
+  return job;
+}
+
+export async function completeJob(jobId: string, result: AnalysisResult) {
+  const job = await loadJob(jobId);
+  if (!job) return null;
+
+  const updated: JobRecord = {
+    ...job,
+    status: "complete",
+    progress: undefined,
+    graph: result.graph,
+    tasks: result.tasks,
+    familiarity: result.familiarity,
+    updatedAt: new Date().toISOString()
+  };
+  await persistJob(updated);
+  return updated;
+}
+
+export async function failJob(jobId: string, error: string) {
+  const job = await loadJob(jobId);
+  if (!job) return null;
+
+  const updated: JobRecord = {
+    ...job,
+    status: "failed",
+    error,
+    progress: undefined,
+    updatedAt: new Date().toISOString()
+  };
+  await persistJob(updated);
+  return updated;
+}
+
+export async function getJob(jobId: string) {
+  return loadJob(jobId);
+}
 
 export function saveAnalysis(result: AnalysisResult) {
-  store.set(result.jobId, result);
+  const now = new Date().toISOString();
+  const job: JobRecord = {
+    jobId: result.jobId,
+    status: "complete",
+    repoUrl: result.graph.repo.url,
+    role: "backend",
+    graph: result.graph,
+    tasks: result.tasks,
+    familiarity: result.familiarity,
+    createdAt: now,
+    updatedAt: now
+  };
+  void persistJob(job);
 }
 
-export function getAnalysis(jobId: string) {
-  return store.get(jobId);
+export async function getAnalysis(jobId: string): Promise<AnalysisResult | null> {
+  const job = await loadJob(jobId);
+  if (!job || job.status !== "complete" || !job.graph || !job.tasks || !job.familiarity) return null;
+  return {
+    jobId: job.jobId,
+    graph: job.graph,
+    tasks: job.tasks,
+    familiarity: job.familiarity
+  };
 }
 
-export function updateTaskStatus(jobId: string, taskId: string, status: OnboardingTask["status"]) {
-  const result = store.get(jobId);
-  if (!result) return null;
+export async function updateTaskStatus(jobId: string, taskId: string, status: OnboardingTask["status"]) {
+  const job = await loadJob(jobId);
+  if (!job?.tasks) return null;
 
-  result.tasks = result.tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
-  result.familiarity = calculateFamiliarity(result.tasks);
-  store.set(jobId, result);
-  return result;
+  job.tasks = job.tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
+  job.familiarity = calculateFamiliarity(job.tasks);
+  job.updatedAt = new Date().toISOString();
+  await persistJob(job);
+
+  if (!job.graph || !job.familiarity) return null;
+  return {
+    jobId: job.jobId,
+    graph: job.graph,
+    tasks: job.tasks,
+    familiarity: job.familiarity
+  };
 }
 
 export function calculateFamiliarity(tasks: OnboardingTask[]): FamiliarityScore {
@@ -48,4 +186,16 @@ function scoreArea(tasks: OnboardingTask[], area: OnboardingTask["area"]) {
   if (matching.length === 0) return 10;
   const completed = matching.filter((task) => task.status === "done").length;
   return Math.min(100, 20 + Math.round((completed / matching.length) * 70));
+}
+
+export function jobToResponse(job: JobRecord) {
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    progress: job.progress,
+    error: job.error,
+    graph: job.graph,
+    tasks: job.tasks,
+    familiarity: job.familiarity
+  };
 }

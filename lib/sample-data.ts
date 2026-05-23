@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AnalysisResult, EngineerRole, OnboardingTask, StackMapGraph } from "@/lib/types";
 
 export const sampleGraph: StackMapGraph = {
@@ -137,9 +138,13 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
   return base;
 }
 
-export function buildAnalysisResult(repoUrl: string, role: EngineerRole = "backend"): AnalysisResult {
+export function buildAnalysisResult(
+  repoUrl: string,
+  role: EngineerRole = "backend",
+  jobId: string = randomUUID()
+): AnalysisResult {
   return {
-    jobId: crypto.randomUUID(),
+    jobId,
     graph: {
       ...sampleGraph,
       repo: {
