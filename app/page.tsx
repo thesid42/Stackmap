@@ -300,7 +300,17 @@ export default function Home() {
 
     if (!response.ok) return;
     const result = (await response.json()) as Pick<AnalysisResult, "tasks" | "familiarity">;
-    setAnalysis({ ...analysis, tasks: result.tasks, familiarity: result.familiarity });
+    const updated = { ...analysis, tasks: result.tasks, familiarity: result.familiarity };
+    setAnalysis(updated);
+
+    // If the user completes the currently selected mission, advance to the next unlocked step.
+    if (status === "done" && selectedTaskId === taskId) {
+      const next = getNextMission(result.tasks);
+      if (next && next.id !== taskId) {
+        setSelectedNodeId(null);
+        setSelectedTaskId(next.id);
+      }
+    }
   }
 
   async function askQuestion() {

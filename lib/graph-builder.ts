@@ -1,6 +1,11 @@
 import type { AgentPartialOutput } from "@/lib/agent-orchestrator";
 import { extractImportHints, type ImportHint, type RepoIndex, type RepoService } from "@/lib/repo-indexer";
 import { assignMissionOrder } from "@/lib/mission-path";
+import {
+  buildOnboardingMissionsFromGraph,
+  curateOnboardingMissions,
+  MAX_ONBOARDING_MISSIONS
+} from "@/lib/onboarding-missions";
 import type { EngineerRole, OnboardingTask, StackMapEdge, StackMapGraph, StackMapNode } from "@/lib/types";
 
 export type GraphBuildInput = {
@@ -33,7 +38,9 @@ export function mergeAgentOutputs(input: GraphBuildInput): { graph: StackMapGrap
         type: edge.type || "depends_on"
       });
     }
-    if (output.tasks?.length) mergedTasks.push(...output.tasks);
+    if (output.agent === "task-workflow" && output.tasks?.length) {
+      mergedTasks.push(...output.tasks);
+    }
   }
 
   if (mergedNodes.size === 0) {
@@ -61,10 +68,15 @@ export function mergeAgentOutputs(input: GraphBuildInput): { graph: StackMapGrap
     edges: [...mergedEdges.values()].filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
   };
 
-  const tasks = dedupeTasks(
-    mergedTasks.length ? mergedTasks : buildDefaultTasks(input.role, graph.nodes),
-    nodeIds
-  );
+  const rawTasks = mergedTasks.length
+    ? dedupeTasks(mergedTasks, nodeIds)
+    : buildOnboardingMissionsFromGraph(input.role, nodes);
+
+  const curated = curateOnboardingMissions(rawTasks);
+  const tasks =
+    curated.length >= 3
+      ? dedupeTasks(curated, nodeIds).slice(0, MAX_ONBOARDING_MISSIONS)
+      : dedupeTasks(buildOnboardingMissionsFromGraph(input.role, nodes), nodeIds);
 
   return { graph, tasks };
 }
@@ -264,40 +276,6 @@ function buildImportEdges(hints: ImportHint[], nodes: StackMapNode[]): StackMapE
     });
   }
   return edges;
-}
-
-function buildDefaultTasks(role: EngineerRole, nodes: StackMapNode[]): OnboardingTask[] {
-  const nodeIds = nodes.slice(0, 4).map((node) => node.id);
-  const roleArea = role === "frontend" ? "frontend" : role === "infra" ? "infra" : role === "qa" ? "testing" : "backend";
-
-  return assignMissionOrder([
-    {
-      id: "task-map-repo",
-      order: 1,
-      title: "Read the architecture map",
-      difficulty: "easy",
-      area: "architecture",
-      description: "Walk the graph and name each major node, its files, and one dependency.",
-      filesToRead: nodes.flatMap((node) => node.files).slice(0, 6),
-      successCriteria: ["Name three nodes", "Cite one evidence file per node", "Explain one edge"],
-      estimatedMinutes: 15,
-      relatedNodeIds: nodeIds,
-      status: "todo"
-    },
-    {
-      id: "task-trace-flow",
-      order: 2,
-      title: "Trace one user-facing flow",
-      difficulty: "medium",
-      area: roleArea,
-      description: "Pick an entry or API node and follow edges to data or services.",
-      filesToRead: nodes.flatMap((node) => node.files).slice(0, 8),
-      successCriteria: ["Start from one entry file", "List two downstream files", "Note one edge case"],
-      estimatedMinutes: 30,
-      relatedNodeIds: nodeIds,
-      status: "todo"
-    }
-  ]);
 }
 
 function dedupeTasks(tasks: OnboardingTask[], nodeIds: Set<string>) {
