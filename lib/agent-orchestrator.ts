@@ -139,20 +139,54 @@ function buildAgentPrompt(agent: (typeof stackMapAgents)[number], input: AgentRu
 
   const focus =
     agent.id === "task-workflow"
-      ? "Return tasks[] as the primary output (4-5 missions for the role). Each task needs order (1,2,3...) easy→hard. filesToRead must be real paths from the index. You may include supporting nodes."
+      ? buildTaskWorkflowInstructions(input.role)
       : agent.id === "dependency"
-        ? "Prioritize edges[] between nodes with import/call relationships."
+        ? "Prioritize edges[] between nodes with import/call relationships. Return tasks: [] (empty array)."
         : agent.id === "risk"
-          ? "Include risk-type nodes and risks[] on affected nodes."
-          : "Prioritize nodes[] with evidence backed by real file paths.";
+          ? "Include risk-type nodes and risks[] on affected nodes. Return tasks: [] (empty array)."
+          : "Prioritize nodes[] with evidence backed by real file paths. Return tasks: [] (empty array).";
+
+  const shapeForAgent =
+    agent.id === "task-workflow"
+      ? shape
+      : { ...shape, tasks: [] };
 
   return [
     buildGraphPrompt(input),
     `You are the ${agent.name}. Goal: ${agent.goal}`,
     focus,
     "Return JSON matching this shape:",
-    JSON.stringify(shape, null, 2)
+    JSON.stringify(shapeForAgent, null, 2)
   ].join("\n\n");
+}
+
+function buildTaskWorkflowInstructions(role: EngineerRole) {
+  return `
+You are the Task Workflow Agent. Create exactly ${5} onboarding missions for a new ${role} engineer on day 1–3.
+
+ONBOARDING means LEARNING the codebase first—not shipping refactors or tickets.
+
+GOOD mission examples:
+- "Orient yourself with the architecture map" (read graph + README)
+- "Trace one end-to-end request flow" (follow files, explain path)
+- "Understand where session/data lives" (read models, no code changes)
+- "Review flagged risks before changing code" (read only)
+- "Plan a safe first contribution" (describe a small future PR, do not implement)
+
+BAD missions (do NOT generate):
+- "Refactor X to use environment variables"
+- "Decouple hardcoded IPs"
+- "Migrate to Redis" or any production implementation task
+- Duplicate missions with nearly the same title
+
+Rules:
+- Return exactly 5 tasks with order 1–5, difficulty easy → hard
+- Each task: observable learning outcomes in successCriteria (explain, trace, list, identify)
+- filesToRead: only paths that exist in the repository index
+- relatedNodeIds: must match node ids you or other agents found
+- estimatedMinutes: 15–45
+- Do not return nodes or edges unless needed; tasks[] is the main output
+`.trim();
 }
 
 function parseAgentJson(raw: string): Omit<AgentPartialOutput, "agent"> {
