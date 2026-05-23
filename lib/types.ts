@@ -79,3 +79,26 @@ export type AnalysisResult = {
   tasks: OnboardingTask[];
   familiarity: FamiliarityScore;
 };
+
+export type StoryModeScene = {
+  id: string;
+  title: string;
+  durationSeconds: number;
+  narration: string;
+  aiVisualPrompt: string;
+  overlayTitle: string;
+  overlayFacts: string[];
+  files: string[];
+  highlightedNodeIds: string[];
+};
+
+export type StoryModeBrief = {
+  id: string;
+  title: string;
+  status: "storyboard" | "generating_video" | "complete" | "failed";
+  durationSeconds: number;
+  narrationScript: string;
+  scenes: StoryModeScene[];
+  audioUrl?: string;
+  error?: string;
+};

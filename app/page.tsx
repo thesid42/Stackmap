@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -12,8 +12,8 @@ import {
   type Edge,
   type Node
 } from "@xyflow/react";
-import { BookOpenCheck, Bot, CheckCircle2, GitBranch, Loader2, Lock, Map, Radar, Send } from "lucide-react";
-import type { AnalysisResult, EngineerRole, OnboardingTask } from "@/lib/types";
+import { BookOpenCheck, Bot, CheckCircle2, Clapperboard, Expand, GitBranch, Loader2, Lock, Map, Radar, Send, X } from "lucide-react";
+import type { AnalysisResult, EngineerRole, OnboardingTask, StoryModeBrief } from "@/lib/types";
 import { CustomArchitectureNode, nodeStyles } from "@/components/custom-node";
 import { FlowFitView } from "@/components/flow-fit-view";
 import { MentorMarkdown } from "@/components/mentor-markdown";
@@ -44,10 +44,16 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+  const [storyBrief, setStoryBrief] = useState<StoryModeBrief | null>(null);
+  const [storyClipIndex, setStoryClipIndex] = useState(0);
+  const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
+  const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+  const [storyError, setStoryError] = useState("");
   const [chatError, setChatError] = useState("");
   const [error, setError] = useState("");
   const [checkedCriteria, setCheckedCriteria] = useState<Record<string, boolean[]>>({});
   const answerRef = useRef<HTMLDivElement>(null);
+  const storyAudioRef = useRef<HTMLAudioElement>(null);
 
   const missionPath = useMemo(() => {
     if (!analysis) return null;
@@ -105,6 +111,7 @@ export default function Home() {
   const selectedTask =
     sortedTasks.find((task) => task.id === selectedTaskId) ?? sortedTasks[0] ?? analysis?.tasks[0];
   const nextMission = analysis ? getNextMission(analysis.tasks) : undefined;
+  const currentStoryScene = storyBrief?.scenes[storyClipIndex];
 
   const flow = useMemo(() => {
     if (!analysis) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -258,6 +265,9 @@ export default function Home() {
     setAnswer("");
     setQuestion("");
     setChatError("");
+    setStoryBrief(null);
+    setStoryClipIndex(0);
+    setStoryError("");
     setAnalyzeProgress("Starting analysis...");
 
     const response = await fetch("/api/analyze", {
@@ -339,6 +349,156 @@ export default function Home() {
     }
   }
 
+  async function generateStoryMode(generateVideo: boolean) {
+    if (!analysis || isGeneratingStory) return;
+
+    setIsGeneratingStory(true);
+    setStoryError("");
+    setStoryBrief(null);
+    setStoryClipIndex(0);
+
+    try {
+      const response = await fetch("/api/story-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: analysis.jobId,
+          nodeId: selectedNode?.id,
+          taskId: selectedTask?.id,
+          generateVideo
+        })
+      });
+      const result = (await response.json()) as { brief?: StoryModeBrief; error?: string };
+
+      if (!response.ok || !result.brief) {
+        setStoryError(result.error ?? "Could not generate Story Mode.");
+        return;
+      }
+
+      setStoryBrief(result.brief);
+      setStoryClipIndex(0);
+      if (result.brief.status === "failed" && result.brief.error) {
+        setStoryError(result.brief.error);
+      }
+    } catch {
+      setStoryError("Network error while generating Story Mode.");
+    } finally {
+      setIsGeneratingStory(false);
+    }
+  }
+
+  function syncStoryAudio() {
+    const audio = storyAudioRef.current;
+    if (!audio) return;
+    const clipOffset = (storyBrief?.scenes ?? [])
+      .slice(0, storyClipIndex)
+      .reduce((sum, scene) => sum + scene.durationSeconds, 0);
+    audio.currentTime = Math.min(clipOffset, audio.duration || clipOffset);
+  }
+
+  async function playStoryAudio() {
+    syncStoryAudio();
+    await storyAudioRef.current?.play().catch(() => undefined);
+  }
+
+  function pauseStoryAudio() {
+    storyAudioRef.current?.pause();
+  }
+
+  async function playStory() {
+    await playStoryAudio();
+  }
+
+  function pauseStory() {
+    pauseStoryAudio();
+  }
+
+  function storyVisualClass(scenePrompt?: string) {
+    return `story-visual story-${scenePrompt?.replace(/[^a-z_]/gi, "").toLowerCase() || "architecture_map"}`;
+  }
+
+  function renderStoryStage(size: "compact" | "large" = "compact") {
+    if (!storyBrief || !currentStoryScene) return null;
+    const files = (currentStoryScene.files.length ? currentStoryScene.files : selectedNode?.files ?? []).slice(0, size === "large" ? 5 : 3);
+
+    return (
+      <div className={`story-stage ${size === "large" ? "story-stage-large" : ""}`}>
+        <div className={storyVisualClass(currentStoryScene.aiVisualPrompt)}>
+          <div className="story-grid" />
+          <div className="story-orbit story-orbit-one" />
+          <div className="story-orbit story-orbit-two" />
+          <div className="story-flow story-flow-one" />
+          <div className="story-flow story-flow-two" />
+
+          <div className="story-node story-node-primary">
+            <span>{currentStoryScene.overlayTitle}</span>
+          </div>
+          <div className="story-node story-node-secondary">
+            <span>{selectedNode?.type ?? "module"}</span>
+          </div>
+          <div className="story-node story-node-tertiary">
+            <span>{selectedTask?.area ?? "mission"}</span>
+          </div>
+
+          <div className="story-file-stack">
+            {files.map((file) => (
+              <div key={file} className="story-file-card">
+                {file}
+              </div>
+            ))}
+          </div>
+
+          <div className="story-caption">
+            <div className="story-kicker">Scene {storyClipIndex + 1} / {storyBrief.scenes.length}</div>
+            <div className="story-title">{currentStoryScene.title}</div>
+            <div className="story-narration">{currentStoryScene.narration}</div>
+          </div>
+
+          <div className="story-facts">
+            {currentStoryScene.overlayFacts.slice(0, size === "large" ? 4 : 3).map((fact) => (
+              <div key={fact}>{fact}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function handleStoryClipEnded() {
+    if (storyBrief && storyClipIndex < storyBrief.scenes.length - 1) {
+      setStoryClipIndex((index) => index + 1);
+      return;
+    }
+    storyAudioRef.current?.pause();
+  }
+
+  useEffect(() => {
+    const audio = storyAudioRef.current;
+    if (!audio || audio.paused) return;
+    const clipOffset = (storyBrief?.scenes ?? [])
+      .slice(0, storyClipIndex)
+      .reduce((sum, scene) => sum + scene.durationSeconds, 0);
+    audio.currentTime = Math.min(clipOffset, audio.duration || clipOffset);
+  }, [storyBrief, storyClipIndex]);
+
+  useEffect(() => {
+    if (!storyBrief) return;
+    const timer = window.setInterval(() => {
+      const audio = storyAudioRef.current;
+      if (!audio || audio.paused) return;
+      const elapsed = audio.currentTime;
+      let accumulated = 0;
+      const nextIndex = storyBrief.scenes.findIndex((scene) => {
+        accumulated += scene.durationSeconds;
+        return elapsed < accumulated;
+      });
+      if (nextIndex >= 0 && nextIndex !== storyClipIndex) {
+        setStoryClipIndex(nextIndex);
+      }
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [storyBrief, storyClipIndex]);
+
   return (
     <main className="min-h-screen bg-[#f3f5f8] text-slate-950">
       <header className="border-b border-slate-200 bg-white">
@@ -404,6 +564,101 @@ export default function Home() {
             {analyzeProgress ? <p className="mt-3 text-sm text-slate-600">{analyzeProgress}</p> : null}
             {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
           </section>
+
+          {analysis ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Clapperboard size={18} className="text-violet-700" />
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Story Mode</h2>
+                    <p className="text-xs text-slate-500">Narrated AI walkthrough</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => generateStoryMode(true)}
+                  disabled={isGeneratingStory}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-violet-300"
+                >
+                  {isGeneratingStory ? <Loader2 size={14} className="animate-spin" /> : <Clapperboard size={14} />}
+                  Generate
+                </button>
+              </div>
+
+              {storyError ? <p className="mt-3 text-sm text-rose-700">{storyError}</p> : null}
+              {isGeneratingStory ? (
+                <div className="mt-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <Loader2 size={16} className="animate-spin text-violet-700" />
+                  Generating walkthrough...
+                </div>
+              ) : null}
+
+              {storyBrief ? (
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="truncate text-sm font-semibold text-slate-900">{storyBrief.title}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="rounded-md bg-violet-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-700">
+                        {storyBrief.scenes.length ? `${storyClipIndex + 1}/${storyBrief.scenes.length}` : storyBrief.status.replace("_", " ")}
+                      </span>
+                      <button
+                        onClick={() => setIsStoryModalOpen(true)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                        aria-label="Open Story Mode large viewer"
+                        title="Open large viewer"
+                      >
+                        <Expand size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  {currentStoryScene ? (
+                    <div>
+                      {renderStoryStage("compact")}
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          onClick={() => void playStory()}
+                          disabled={!storyBrief.audioUrl}
+                          className="rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          Play
+                        </button>
+                        <button
+                          onClick={pauseStory}
+                          className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                        >
+                          Pause
+                        </button>
+                        <button
+                          onClick={() => setStoryClipIndex((index) => Math.max(0, index - 1))}
+                          className="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          onClick={() => setStoryClipIndex((index) => Math.min((storyBrief.scenes.length ?? 1) - 1, index + 1))}
+                          className="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                        >
+                          Next
+                        </button>
+                      </div>
+                      {storyBrief.audioUrl ? (
+                        <audio ref={storyAudioRef} src={storyBrief.audioUrl} className="hidden" onEnded={handleStoryClipEnded} />
+                      ) : null}
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-violet-600 transition-all"
+                          style={{ width: `${((storyClipIndex + 1) / storyBrief.scenes.length) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  {!storyBrief.audioUrl ? (
+                    <p className="mt-2 text-xs text-amber-700">Narration audio was not generated, but the illustrated walkthrough is ready.</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
 
           {analysis ? (
             <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -892,6 +1147,69 @@ export default function Home() {
           ) : null}
         </section>
       </section>
+
+      {isStoryModalOpen && storyBrief ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-sm">
+          <section className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Clapperboard size={18} className="text-violet-700" />
+                  <h2 className="truncate text-lg font-bold text-slate-950">{storyBrief.title}</h2>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  Scene {storyClipIndex + 1} of {storyBrief.scenes.length}
+                </p>
+              </div>
+              <button
+                onClick={() => setIsStoryModalOpen(false)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                aria-label="Close Story Mode large viewer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-auto p-5">
+              {renderStoryStage("large")}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => void playStory()}
+                  disabled={!storyBrief.audioUrl}
+                  className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Play
+                </button>
+                <button
+                  onClick={pauseStory}
+                  className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Pause
+                </button>
+                <button
+                  onClick={() => setStoryClipIndex((index) => Math.max(0, index - 1))}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setStoryClipIndex((index) => Math.min(storyBrief.scenes.length - 1, index + 1))}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Next
+                </button>
+                <div className="ml-auto min-w-[220px] flex-1">
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-violet-600 transition-all"
+                      style={{ width: `${((storyClipIndex + 1) / storyBrief.scenes.length) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
