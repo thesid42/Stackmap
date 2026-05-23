@@ -7,11 +7,14 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  Panel,
   type Edge,
   type Node
 } from "@xyflow/react";
 import { BookOpenCheck, Bot, CheckCircle2, GitBranch, Loader2, Map, Radar, Send } from "lucide-react";
-import type { AnalysisResult, EngineerRole, OnboardingTask, StackMapNode } from "@/lib/types";
+import type { AnalysisResult, EngineerRole, OnboardingTask } from "@/lib/types";
+import { CustomArchitectureNode, nodeStyles } from "@/components/custom-node";
+import { layoutGraph } from "@/lib/graph-layout";
 
 const roleOptions: { label: string; value: EngineerRole }[] = [
   { label: "Backend Intern", value: "backend" },
@@ -22,16 +25,8 @@ const roleOptions: { label: string; value: EngineerRole }[] = [
   { label: "OSS Contributor", value: "opensource" }
 ];
 
-const nodeColors: Record<StackMapNode["type"], string> = {
-  service: "#2563eb",
-  entry: "#0f766e",
-  api: "#7c3aed",
-  component: "#0891b2",
-  data: "#0f9f6e",
-  config: "#475569",
-  test: "#b45309",
-  risk: "#be123c",
-  shared_library: "#4f46e5"
+const nodeTypes = {
+  custom: CustomArchitectureNode
 };
 
 export default function Home() {
@@ -67,49 +62,103 @@ export default function Home() {
   const flow = useMemo(() => {
     if (!analysis) return { nodes: [] as Node[], edges: [] as Edge[] };
 
-    const positions = [
-      { x: 0, y: 120 },
-      { x: 260, y: 40 },
-      { x: 520, y: 40 },
-      { x: 260, y: 230 },
-      { x: 520, y: 230 },
-      { x: 780, y: 230 },
-      { x: 520, y: 410 }
-    ];
+    const { nodes: positionedNodes, edges: layoutEdges } = layoutGraph(
+      analysis.graph.nodes,
+      analysis.graph.edges
+    );
 
-    const nodes: Node[] = analysis.graph.nodes.map((node, index) => ({
+    const anyNodeSelected = !!selectedNodeId;
+    const activeNodeIds = new Set<string>();
+    const activeEdgeIds = new Set<string>();
+
+    if (selectedNodeId) {
+      activeNodeIds.add(selectedNodeId);
+      analysis.graph.edges.forEach((edge) => {
+        if (edge.source === selectedNodeId) {
+          activeNodeIds.add(edge.target);
+          activeEdgeIds.add(edge.id);
+        } else if (edge.target === selectedNodeId) {
+          activeNodeIds.add(edge.source);
+          activeEdgeIds.add(edge.id);
+        }
+      });
+    }
+
+    const nodes: Node[] = positionedNodes.map((node) => ({
       id: node.id,
-      position: positions[index] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 180 },
+      type: "custom",
+      position: node.position,
       data: {
-        label: (
-          <div className="min-w-[150px]">
-            <div className="text-[11px] font-semibold uppercase text-slate-500">{node.type.replace("_", " ")}</div>
-            <div className="mt-1 text-sm font-semibold text-slate-950">{node.label}</div>
-            {node.risks?.length ? <div className="mt-2 text-xs font-medium text-rose-700">Risk flagged</div> : null}
-          </div>
-        )
-      },
-      style: {
-        border: `2px solid ${nodeColors[node.type]}`,
-        borderRadius: 8,
-        background: "#ffffff",
-        boxShadow: "0 8px 18px rgba(15, 23, 42, 0.08)",
-        padding: 10
+        label: node.label,
+        type: node.type,
+        summary: node.summary,
+        files: node.files,
+        risks: node.risks,
+        isFocused: !selectedNodeId || activeNodeIds.has(node.id),
+        anyNodeSelected
       }
     }));
 
-    const edges: Edge[] = analysis.graph.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      label: edge.label,
-      animated: edge.type === "publishes" || edge.type === "routes_to",
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { stroke: edge.type === "depends_on" ? "#be123c" : "#64748b", strokeWidth: 2 }
-    }));
+    const edges: Edge[] = layoutEdges.map((edge) => {
+      const isActive = !selectedNodeId || activeEdgeIds.has(edge.id);
+      let edgeColor = "#94a3b8";
+      let edgeWidth = 1.8;
+      let edgeClass = "";
+
+      if (selectedNodeId) {
+        if (isActive) {
+          edgeWidth = 2.8;
+          if (edge.type === "depends_on") {
+            edgeColor = "#f43f5e";
+            edgeClass = "active-flow-edge active-flow-edge-rose";
+          } else if (edge.type === "writes" || edge.type === "reads") {
+            edgeColor = "#10b981";
+            edgeClass = "active-flow-edge active-flow-edge-emerald";
+          } else {
+            edgeColor = "#3b82f6";
+            edgeClass = "active-flow-edge active-flow-edge-blue";
+          }
+        } else {
+          edgeColor = "#cbd5e1";
+          edgeWidth = 1.2;
+        }
+      } else {
+        if (edge.type === "depends_on") {
+          edgeColor = "#be123c";
+        } else if (edge.type === "writes" || edge.type === "reads") {
+          edgeColor = "#0f9f6e";
+        } else {
+          edgeColor = "#64748b";
+        }
+      }
+
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+        type: "smoothstep",
+        animated: edge.type === "publishes" || edge.type === "routes_to" || (!!selectedNodeId && isActive),
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: edgeColor,
+          width: 14,
+          height: 14
+        },
+        style: {
+          stroke: edgeColor,
+          strokeWidth: edgeWidth
+        },
+        className: edgeClass,
+        labelStyle: { fill: isActive ? "#0f172a" : "#94a3b8", fontSize: 9, fontWeight: isActive ? 700 : 500 },
+        labelBgStyle: { fill: "#ffffff", fillOpacity: 0.94 },
+        labelBgPadding: [6, 3],
+        labelBgBorderRadius: 4
+      };
+    });
 
     return { nodes, edges };
-  }, [analysis]);
+  }, [analysis, selectedNodeId]);
 
   async function pollJob(jobId: string) {
     for (let attempt = 0; attempt < 120; attempt++) {
@@ -209,7 +258,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f3f5f8] text-slate-950">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
+        <div className="mx-auto flex max-w-[96%] w-full items-center justify-between px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white">
               <Map size={20} />
@@ -226,7 +275,7 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-5 px-5 py-5 lg:grid-cols-[360px_1fr]">
+      <section className="mx-auto grid max-w-[96%] w-full gap-5 px-5 py-5 lg:grid-cols-[280px_1fr]">
         <aside className="space-y-5">
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
@@ -296,137 +345,323 @@ export default function Home() {
           ) : null}
         </aside>
 
-        <section className="space-y-5">
-          <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-            <section className="h-[520px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-              {analysis ? (
+        <section className="space-y-5 flex-1 min-w-0">
+          {/* Graph Section (Full Width!) */}
+          <section className="h-[680px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm w-full">
+            {analysis ? (
+              <div className="relative h-full bg-slate-950">
                 <ReactFlow
                   nodes={flow.nodes}
                   edges={flow.edges}
+                  nodeTypes={nodeTypes}
                   fitView
+                  fitViewOptions={{ padding: 0.06 }}
                   onNodeClick={(_, node) => setSelectedNodeId(node.id)}
                   nodesDraggable
+                  className="stackmap-flow"
                 >
-                  <Background />
-                  <MiniMap pannable zoomable />
-                  <Controls />
-                </ReactFlow>
-              ) : (
-                <div className="flex h-full items-center justify-center p-8 text-center">
-                  <div>
-                    <Map size={42} className="mx-auto text-slate-400" />
-                    <h2 className="mt-4 text-xl font-semibold">Generate a codebase onboarding map</h2>
-                    <p className="mt-2 max-w-lg text-sm leading-6 text-slate-600">
-                      Paste a public GitHub URL to clone, index, and analyze the repo with specialist Gemini agents. Use the demo URL for an instant sample graph.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="font-semibold">Inspector</h2>
-              {selectedNode ? (
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">{selectedNode.type.replace("_", " ")}</div>
-                    <h3 className="mt-1 text-lg font-semibold">{selectedNode.label}</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{selectedNode.summary}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold">Files</h4>
-                    <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                      {selectedNode.files.map((file) => (
-                        <li key={file} className="rounded-md bg-slate-50 px-2 py-1">
-                          {file}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold">Evidence</h4>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {selectedNode.evidence.map((item) => (
-                        <li key={`${item.file}-${item.reason}`} className="rounded-md bg-slate-50 px-2 py-2">
-                          <div className="font-medium text-slate-900">{item.file}</div>
-                          <div className="mt-1 text-slate-600">{item.reason}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  {selectedNode.risks?.length ? (
-                    <div>
-                      <h4 className="text-sm font-semibold text-rose-700">Risks</h4>
-                      <ul className="mt-2 space-y-1 text-sm text-rose-700">
-                        {selectedNode.risks.map((risk) => (
-                          <li key={risk}>{risk}</li>
-                        ))}
-                      </ul>
+                  <Background color="#cbd5e1" gap={18} size={1.2} />
+                  
+                  <Panel position="top-left">
+                    <div className="rounded-lg border border-slate-200 bg-white/95 p-3.5 shadow-lg backdrop-blur-md max-w-[240px]">
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                        <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        {analysis.graph.repo.name}
+                      </div>
+                      <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px] font-bold text-slate-600">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">{analysis.graph.nodes.length} Modules</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">{analysis.graph.edges.length} Links</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">{analysis.graph.repo.framework ?? analysis.graph.repo.language}</span>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-slate-600">Select a graph node to inspect source evidence.</p>
-              )}
-            </section>
-          </div>
+                  </Panel>
 
+                  <Panel position="top-right">
+                    <div className="hidden max-w-[260px] flex-wrap gap-1.5 rounded-lg border border-slate-200 bg-white/90 p-2.5 shadow-lg backdrop-blur-md md:flex">
+                      <div className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Architecture Legend</div>
+                      <span className="rounded bg-teal-50 border border-teal-200/60 px-1.5 py-0.5 text-[9px] font-bold text-teal-700">Entrypoint</span>
+                      <span className="rounded bg-cyan-50 border border-cyan-200/60 px-1.5 py-0.5 text-[9px] font-bold text-cyan-700">UI Component</span>
+                      <span className="rounded bg-violet-50 border border-violet-200/60 px-1.5 py-0.5 text-[9px] font-bold text-violet-700">API Route</span>
+                      <span className="rounded bg-blue-50 border border-blue-200/60 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">Service</span>
+                      <span className="rounded bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">Database</span>
+                      <span className="rounded bg-rose-50 border border-rose-200/60 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">Risk Item</span>
+                    </div>
+                  </Panel>
+
+                  {selectedNodeId && (
+                    <Panel position="bottom-center">
+                      <button
+                        onClick={() => setSelectedNodeId(null)}
+                        className="rounded-full bg-slate-900 border border-slate-800 text-white px-3.5 py-1.5 text-xs font-semibold shadow-lg hover:bg-blue-600 transition-all duration-200 flex items-center gap-1.5 transform hover:-translate-y-0.5"
+                      >
+                        Clear Path Focus
+                      </button>
+                    </Panel>
+                  )}
+
+                  <MiniMap
+                    pannable
+                    zoomable
+                    maskColor="rgba(15, 23, 42, 0.05)"
+                    className="stackmap-minimap"
+                  />
+                  <Controls className="stackmap-controls" showInteractive={false} />
+                </ReactFlow>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-center bg-[radial-gradient(circle_at_top_left,#dbeafe,transparent_32%),linear-gradient(135deg,#ffffff,#f8fafc)]">
+                <div className="max-w-md">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/25">
+                    <Map size={28} />
+                  </div>
+                  <h2 className="mt-5 text-xl font-bold tracking-tight">Generate a codebase onboarding map</h2>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    Paste a public GitHub URL to clone, index, and analyze the repo with specialist Gemini agents. Use the demo URL for an instant sample graph.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* 3-Column Dashboard under the Graph */}
           {analysis ? (
-            <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+            <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr_1fr] items-start">
+              {/* Column 1: Onboarding Missions */}
               <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-4 flex items-center gap-2">
                   <BookOpenCheck size={18} className="text-emerald-700" />
-                  <h2 className="font-semibold">Onboarding Missions</h2>
+                  <h2 className="font-semibold text-slate-900">Onboarding Missions</h2>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {analysis.tasks.map((task) => (
-                    <button
-                      key={task.id}
-                      onClick={() => setSelectedTaskId(task.id)}
-                      className={`rounded-lg border p-4 text-left transition ${
-                        selectedTaskId === task.id ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase text-slate-500">{task.area}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{task.difficulty}</span>
-                      </div>
-                      <h3 className="mt-2 font-semibold">{task.title}</h3>
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{task.description}</p>
-                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                        <span>{task.estimatedMinutes} min</span>
-                        <span className="capitalize">{task.status.replace("_", " ")}</span>
-                      </div>
-                    </button>
-                  ))}
+                
+                <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                  {analysis.tasks.map((task) => {
+                    const isSelected = selectedTaskId === task.id;
+                    const isDone = task.status === "done";
+                    return (
+                      <button
+                        key={task.id}
+                        onClick={() => setSelectedTaskId(task.id)}
+                        className={`w-full text-left rounded-lg p-3.5 transition-all duration-150 border ${
+                          isSelected
+                            ? "bg-blue-50/60 border-blue-200 shadow-sm"
+                            : "bg-white border-slate-100 hover:bg-slate-50/80 hover:border-slate-200"
+                        } flex items-start gap-3`}
+                      >
+                        {/* Status Checkbox */}
+                        <div className="mt-1 flex-shrink-0">
+                          {isDone ? (
+                            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              ✓
+                            </span>
+                          ) : (
+                            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full border border-slate-300 bg-white" />
+                          )}
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="rounded bg-slate-100/90 text-slate-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                              {task.area}
+                            </span>
+                            <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                              task.difficulty === "easy" 
+                                ? "bg-emerald-50 text-emerald-700" 
+                                : task.difficulty === "medium" 
+                                  ? "bg-amber-50 text-amber-700" 
+                                  : "bg-rose-50 text-rose-700"
+                            }`}>
+                              {task.difficulty}
+                            </span>
+                          </div>
+                          
+                          <h4 className="mt-2 text-[13px] font-bold text-slate-800 line-clamp-1 leading-snug">
+                            {task.title}
+                          </h4>
+                          <p className="mt-1 text-[11px] leading-[15px] text-slate-500 line-clamp-2">
+                            {task.description}
+                          </p>
+                          <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                            <span>⏱️ {task.estimatedMinutes} min</span>
+                            <span className={isDone ? "text-emerald-600" : "text-slate-500"}>
+                              {task.status.replace("_", " ")}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
 
+              {/* Column 2: Mission Detail */}
               <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <h2 className="font-semibold">Mission Detail</h2>
+                <h2 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100">Mission Detail</h2>
                 {selectedTask ? (
-                  <div className="mt-4 space-y-4">
+                  <div className="space-y-4">
                     <div>
-                      <h3 className="font-semibold">{selectedTask.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-700">{selectedTask.description}</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                          selectedTask.difficulty === "easy"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
+                            : selectedTask.difficulty === "medium"
+                              ? "bg-amber-50 text-amber-700 border border-amber-200/50"
+                              : "bg-rose-50 text-rose-700 border border-rose-200/50"
+                        }`}>
+                          {selectedTask.difficulty} difficulty
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Task</span>
+                      </div>
+                      <h3 className="mt-2.5 text-[15px] font-bold text-slate-900 leading-snug">
+                        {selectedTask.title}
+                      </h3>
+                      <p className="mt-2 text-xs leading-[17px] text-slate-500">
+                        {selectedTask.description}
+                      </p>
                     </div>
-                    <div>
-                      <h4 className="text-sm font-semibold">Success Criteria</h4>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+
+                    <div className="border-t border-slate-100 pt-3">
+                      <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                        Success Criteria
+                      </h4>
+                      <ul className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
                         {selectedTask.successCriteria.map((item) => (
-                          <li key={item}>{item}</li>
+                          <li
+                            key={item}
+                            className="flex items-start gap-2.5 text-[11px] text-slate-600 leading-[15px]"
+                          >
+                            <span className="mt-0.5 flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold">
+                              ✓
+                            </span>
+                            <span>{item}</span>
+                          </li>
                         ))}
                       </ul>
                     </div>
-                    <button
-                      onClick={() => updateTask(selectedTask.id, selectedTask.status === "done" ? "todo" : "done")}
-                      className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white"
-                    >
-                      <CheckCircle2 size={16} />
-                      {selectedTask.status === "done" ? "Mark Todo" : "Mark Done"}
-                    </button>
+
+                    {selectedTask.filesToRead && selectedTask.filesToRead.length > 0 && (
+                      <div className="border-t border-slate-100 pt-3">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                          Files to Trace
+                        </h4>
+                        <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
+                          {selectedTask.filesToRead.map((file) => (
+                            <div
+                              key={file}
+                              className="font-mono text-[10px] bg-slate-50 border border-slate-100/80 px-2 py-1.5 rounded text-slate-600 flex items-center gap-1.5 truncate shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+                              title={file}
+                            >
+                              <span className="text-slate-400">📄</span>
+                              {file}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="border-t border-slate-100 pt-3">
+                      <button
+                        onClick={() => updateTask(selectedTask.id, selectedTask.status === "done" ? "todo" : "done")}
+                        className={`flex w-full items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-xs font-semibold shadow-sm transition-all duration-150 ${
+                          selectedTask.status === "done"
+                            ? "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-100/50"
+                        }`}
+                      >
+                        <CheckCircle2 size={13} className="stroke-[2.5]" />
+                        {selectedTask.status === "done" ? "Re-open Mission" : "Mark Mission Done"}
+                      </button>
+                    </div>
                   </div>
-                ) : null}
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">Select an onboarding mission on the left to trace requirements.</p>
+                )}
+              </section>
+
+              {/* Column 3: Redesigned Node Inspector */}
+              <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100">Inspector</h2>
+                {selectedNode ? (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${nodeStyles[selectedNode.type].bgSoft}`}>
+                          {nodeStyles[selectedNode.type].label}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Node</span>
+                      </div>
+                      <h3 className="mt-2.5 text-[15px] font-bold text-slate-900 leading-snug">
+                        {selectedNode.label}
+                      </h3>
+                      <p className="mt-2 text-xs leading-[17px] text-slate-500">
+                        {selectedNode.summary}
+                      </p>
+                    </div>
+
+                    {selectedNode.files && selectedNode.files.length > 0 && (
+                      <div className="border-t border-slate-100 pt-3">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                          Associated Files
+                        </h4>
+                        <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
+                          {selectedNode.files.map((file) => (
+                            <div
+                              key={file}
+                              className="font-mono text-[10px] bg-slate-50 border border-slate-100/80 px-2 py-1.5 rounded text-slate-600 flex items-center gap-1.5 truncate shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+                              title={file}
+                            >
+                              <span className="text-slate-400">📄</span>
+                              {file}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedNode.evidence && selectedNode.evidence.length > 0 && (
+                      <div className="border-t border-slate-100 pt-3">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                          Verification Evidence
+                        </h4>
+                        <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
+                          {selectedNode.evidence.map((item) => (
+                            <div
+                              key={`${item.file}-${item.reason}`}
+                              className="bg-slate-50/50 border border-slate-100 p-2 rounded-md"
+                            >
+                              <div className="font-mono text-[9.5px] font-bold text-slate-700 truncate" title={item.file}>
+                                {item.file.split("/").pop()}
+                              </div>
+                              <div className="mt-1 text-[10.5px] leading-normal text-slate-500">
+                                {item.reason}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedNode.risks && selectedNode.risks.length > 0 && (
+                      <div className="border-t border-slate-100 pt-3">
+                        <h4 className="text-[11px] font-bold text-rose-500 uppercase tracking-wider mb-2">
+                          Flagged Risks
+                        </h4>
+                        <div className="space-y-1.5">
+                          {selectedNode.risks.map((risk) => (
+                            <div
+                              key={risk}
+                              className="bg-rose-50/50 border border-rose-100 rounded-lg p-2.5 flex items-start gap-2 text-[10.5px] leading-normal text-rose-700 font-medium"
+                            >
+                              <span className="text-rose-500 mt-0.5">⚠️</span>
+                              <span>{risk}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">Click any card on the map to inspect its real files and logic dependencies.</p>
+                )}
               </section>
             </div>
           ) : null}
