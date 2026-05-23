@@ -9,7 +9,7 @@ import {
 } from "@/lib/analysis-store";
 import { mergeAgentOutputs, normalizeGraph } from "@/lib/graph-builder";
 import { buildRepoIndex } from "@/lib/repo-indexer";
-import { cloneRepository, scanRepository } from "@/lib/repo-scanner";
+import { cloneRepository, isRepositoryCached, scanRepository } from "@/lib/repo-scanner";
 import { buildAnalysisResult } from "@/lib/sample-data";
 import type { AnalysisResult, EngineerRole, StackMapGraph } from "@/lib/types";
 
@@ -37,12 +37,15 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
     return;
   }
 
-  let cleanup: (() => Promise<void>) | undefined;
-
   try {
-    await updateJobProgress(jobId, "Cloning repository (this may take a few minutes)...");
+    const cached = await isRepositoryCached(repoUrl);
+    await updateJobProgress(
+      jobId,
+      cached
+        ? "Using cached repository..."
+        : "Cloning repository (this may take a few minutes)..."
+    );
     const cloned = await cloneRepository(repoUrl);
-    cleanup = cloned.cleanup;
 
     await updateJobProgress(jobId, "Indexing codebase...");
     const scan = await scanRepository(cloned.repo, cloned.rootPath);
@@ -97,7 +100,5 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
     const message = error instanceof Error ? error.message : "Analysis failed";
     await failJob(jobId, message);
     throw error;
-  } finally {
-    if (cleanup) await cleanup();
   }
 }

@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { classifyFile, detectLanguage, shouldIndexFile, type IndexedFile } from "@/lib/repo-indexer";
@@ -92,8 +91,53 @@ export function formatGitCloneError(error: unknown, repo?: Pick<RepoIdentity, "d
     : `Failed to clone ${repoLabel}. Verify the GitHub URL and try again.`;
 }
 
-/** All clones live under the OS temp directory and are removed after analysis. */
-const cloneTempPrefix = () => path.join(tmpdir(), "stackmap-clone-");
+const cloneLockFile = "cloning.lock";
+const defaultLockWaitMs = 600_000;
+
+function repoCacheRoot() {
+  const override = process.env.STACKMAP_REPO_CACHE_DIR;
+  if (override) return path.resolve(override);
+  return path.join(process.cwd(), ".data", "repo-cache");
+}
+
+function cacheTtlMs(): number | null {
+  const raw = process.env.STACKMAP_CACHE_TTL_MS;
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function repoCacheKey(repo: Pick<RepoIdentity, "owner" | "name">) {
+  return `${repo.owner}-${repo.name}`;
+}
+
+export function repoCachePath(repo: Pick<RepoIdentity, "owner" | "name">) {
+  return path.join(repoCacheRoot(), repoCacheKey(repo));
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isValidCache(cachePath: string) {
+  try {
+    await access(path.join(cachePath, ".git"));
+  } catch {
+    return false;
+  }
+
+  const ttl = cacheTtlMs();
+  if (ttl === null) return true;
+
+  const gitStat = await stat(path.join(cachePath, ".git"));
+  return Date.now() - gitStat.mtimeMs < ttl;
+}
+
+/** Whether a fresh shallow clone is needed (missing, incomplete, or past TTL). */
+export async function isRepositoryCached(repoUrl: string) {
+  const repo = parseGitHubRepoUrl(repoUrl);
+  return isValidCache(repoCachePath(repo));
+}
 
 const maxIndexedFiles = 500;
 const maxSnippetFiles = 55;
@@ -164,24 +208,77 @@ export function parseGitHubRepoUrl(repoUrl: string): RepoIdentity {
   };
 }
 
-export async function cloneRepository(repoUrl: string) {
-  const repo = parseGitHubRepoUrl(repoUrl);
-  const rootPath = await mkdtemp(cloneTempPrefix());
+async function gitShallowClone(repo: RepoIdentity, targetPath: string) {
+  await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", repo.cloneUrl, targetPath], {
+    timeout: cloneTimeoutMs(),
+    maxBuffer: 1024 * 1024
+  });
+}
+
+async function populateCache(repo: RepoIdentity, cachePath: string) {
+  await mkdir(repoCacheRoot(), { recursive: true });
+  const stagingParent = path.dirname(cachePath);
+  const stagingPath = await mkdtemp(path.join(stagingParent, `.${repoCacheKey(repo)}-`));
 
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", repo.cloneUrl, rootPath], {
-      timeout: cloneTimeoutMs(),
-      maxBuffer: 1024 * 1024
-    });
+    await gitShallowClone(repo, stagingPath);
+    await rm(cachePath, { recursive: true, force: true }).catch(() => undefined);
+    await rename(stagingPath, cachePath);
   } catch (error) {
-    await rm(rootPath, { recursive: true, force: true }).catch(() => undefined);
+    await rm(stagingPath, { recursive: true, force: true }).catch(() => undefined);
     throw new Error(formatGitCloneError(error, repo));
   }
+}
+
+async function ensureRepositoryCached(repo: RepoIdentity) {
+  const cachePath = repoCachePath(repo);
+  const lockPath = path.join(cachePath, cloneLockFile);
+  const deadline = Date.now() + defaultLockWaitMs;
+
+  while (Date.now() < deadline) {
+    if (await isValidCache(cachePath)) {
+      return { rootPath: cachePath, fromCache: true };
+    }
+
+    await mkdir(repoCacheRoot(), { recursive: true });
+    await mkdir(cachePath, { recursive: true });
+
+    try {
+      const handle = await open(lockPath, "wx");
+      await handle.writeFile(`${process.pid}\n${Date.now()}`);
+      await handle.close();
+
+      try {
+        if (await isValidCache(cachePath)) {
+          return { rootPath: cachePath, fromCache: true };
+        }
+        await populateCache(repo, cachePath);
+        return { rootPath: cachePath, fromCache: false };
+      } finally {
+        await rm(lockPath, { force: true }).catch(() => undefined);
+      }
+    } catch (error) {
+      const errno = error as NodeJS.ErrnoException;
+      if (errno.code !== "EEXIST") throw error;
+      await sleep(500);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting to prepare cached clone for ${repo.displayUrl}. Another analysis may still be cloning this repository.`
+  );
+}
+
+export async function cloneRepository(repoUrl: string) {
+  const repo = parseGitHubRepoUrl(repoUrl);
+  const { rootPath, fromCache } = await ensureRepositoryCached(repo);
 
   return {
     repo,
     rootPath,
-    cleanup: () => rm(rootPath, { recursive: true, force: true })
+    fromCache,
+    /** Persistent cache is retained; no-op for API compatibility. */
+    cleanup: async () => undefined
   };
 }
 

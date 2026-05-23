@@ -16,7 +16,7 @@ StackMap is an AI onboarding workspace for engineering teams. It turns a GitHub 
 
 ```txt
 GitHub repo URL
-  → Repo Ingestion (shallow clone to OS temp)
+  → Repo Ingestion (shallow clone; reused from `.data/repo-cache` when present)
   → Code Indexer (monorepo service discovery, import hints)
   → Gemini Agent Orchestrator (7 specialist agents in parallel)
   → Architecture Graph Builder (merge + normalize)
@@ -41,7 +41,7 @@ GEMINI_MODEL=gemini-3.5-flash
 # STACKMAP_USE_SAMPLE=1   # force demo graph for any URL
 ```
 
-Requires `git` on PATH. Only public `github.com` repos are supported for live analysis.
+Requires `git` on PATH. Only public `github.com` repos are supported for live analysis. Re-analyzing the same repo reuses a shallow clone under `.data/repo-cache/` (override with `STACKMAP_REPO_CACHE_DIR`; optional `STACKMAP_CACHE_TTL_MS`).
 
 **Demo mode:** URLs matching `example/stackmap-demo` load the rich sample microservices graph instantly (no clone).
 
