@@ -20,7 +20,7 @@ export function updateTaskStatus(jobId: string, taskId: string, status: Onboardi
   return result;
 }
 
-function calculateFamiliarity(tasks: OnboardingTask[]): FamiliarityScore {
+export function calculateFamiliarity(tasks: OnboardingTask[]): FamiliarityScore {
   const done = tasks.filter((task) => task.status === "done");
   const weighted = done.reduce((sum, task) => {
     const weight = task.difficulty === "hard" ? 25 : task.difficulty === "medium" ? 18 : 12;
