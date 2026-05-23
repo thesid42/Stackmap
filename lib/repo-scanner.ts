@@ -7,6 +7,91 @@ import { classifyFile, detectLanguage, shouldIndexFile, type IndexedFile } from 
 
 const execFileAsync = promisify(execFile);
 
+const defaultCloneTimeoutMs = 300_000;
+
+function cloneTimeoutMs() {
+  const raw = process.env.STACKMAP_CLONE_TIMEOUT_MS;
+  if (!raw) return defaultCloneTimeoutMs;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultCloneTimeoutMs;
+}
+
+type ExecFileError = NodeJS.ErrnoException & {
+  killed?: boolean;
+  signal?: string;
+  stderr?: string | Buffer;
+  stdout?: string | Buffer;
+};
+
+function execOutput(error: ExecFileError) {
+  const parts = [error.stderr, error.stdout, error.message].filter(Boolean);
+  return parts
+    .map((part) => (Buffer.isBuffer(part) ? part.toString("utf8") : String(part)))
+    .join("\n")
+    .toLowerCase();
+}
+
+/** Maps git clone failures to messages suitable for the analysis job UI. */
+export function formatGitCloneError(error: unknown, repo?: Pick<RepoIdentity, "displayUrl" | "name">) {
+  const execErr = error as ExecFileError;
+  const output = execOutput(execErr);
+  const repoLabel = repo?.displayUrl ?? repo?.name ?? "the repository";
+  const timeoutMinutes = Math.max(1, Math.round(cloneTimeoutMs() / 60_000));
+
+  if (execErr.killed && execErr.signal === "SIGTERM") {
+    return `Cloning ${repoLabel} timed out after ${timeoutMinutes} minutes. Large repos or slow networks may need a longer limit — set STACKMAP_CLONE_TIMEOUT_MS (currently ${cloneTimeoutMs()} ms).`;
+  }
+
+  if (
+    output.includes("repository not found") ||
+    output.includes("remote repository not found") ||
+    /fatal:.*repository.*not found/.test(output) ||
+    output.includes("could not read from remote repository")
+  ) {
+    return `Repository not found or not accessible: ${repoLabel}. Check that the URL is correct and the repo is public.`;
+  }
+
+  if (
+    output.includes("authentication failed") ||
+    output.includes("could not read username") ||
+    output.includes("invalid username or password") ||
+    output.includes("permission denied") ||
+    output.includes("access rights") ||
+    output.includes("403") ||
+    output.includes("401")
+  ) {
+    return `Cannot access ${repoLabel}. Private repos are not supported yet — use a public GitHub URL.`;
+  }
+
+  if (
+    output.includes("could not resolve host") ||
+    output.includes("connection refused") ||
+    output.includes("failed to connect") ||
+    output.includes("network is unreachable") ||
+    output.includes("unable to access") ||
+    output.includes("connection timed out") ||
+    output.includes("operation timed out") ||
+    execErr.code === "ETIMEDOUT" ||
+    execErr.code === "ENOTFOUND" ||
+    execErr.code === "ECONNREFUSED"
+  ) {
+    return `Network error while cloning ${repoLabel}. Check your internet connection and try again.`;
+  }
+
+  if (error instanceof Error && error.message && !error.message.startsWith("Command failed:")) {
+    return error.message;
+  }
+
+  const detail = [execErr.stderr, execErr.stdout]
+    .map((part) => (Buffer.isBuffer(part) ? part.toString("utf8").trim() : part?.trim()))
+    .filter(Boolean)
+    .join("\n");
+
+  return detail
+    ? `Failed to clone ${repoLabel}: ${detail.split("\n").slice(-3).join(" ")}`
+    : `Failed to clone ${repoLabel}. Verify the GitHub URL and try again.`;
+}
+
 /** All clones live under the OS temp directory and are removed after analysis. */
 const cloneTempPrefix = () => path.join(tmpdir(), "stackmap-clone-");
 
@@ -83,10 +168,15 @@ export async function cloneRepository(repoUrl: string) {
   const repo = parseGitHubRepoUrl(repoUrl);
   const rootPath = await mkdtemp(cloneTempPrefix());
 
-  await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", repo.cloneUrl, rootPath], {
-    timeout: 90_000,
-    maxBuffer: 1024 * 1024
-  });
+  try {
+    await execFileAsync("git", ["clone", "--depth", "1", "--single-branch", repo.cloneUrl, rootPath], {
+      timeout: cloneTimeoutMs(),
+      maxBuffer: 1024 * 1024
+    });
+  } catch (error) {
+    await rm(rootPath, { recursive: true, force: true }).catch(() => undefined);
+    throw new Error(formatGitCloneError(error, repo));
+  }
 
   return {
     repo,

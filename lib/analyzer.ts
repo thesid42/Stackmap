@@ -40,7 +40,7 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
-    await updateJobProgress(jobId, "Cloning repository...");
+    await updateJobProgress(jobId, "Cloning repository (this may take a few minutes)...");
     const cloned = await cloneRepository(repoUrl);
     cleanup = cloned.cleanup;
 
@@ -93,6 +93,10 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
     };
 
     await completeJob(jobId, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Analysis failed";
+    await failJob(jobId, message);
+    throw error;
   } finally {
     if (cleanup) await cleanup();
   }
