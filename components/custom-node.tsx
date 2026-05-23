@@ -140,7 +140,7 @@ export function CustomArchitectureNode({
   
   return (
     <div
-      className={`group relative w-[238px] rounded-lg border-2 bg-white transition-all duration-300 ${
+      className={`group relative w-[238px] min-h-[168px] rounded-lg border-2 bg-white transition-all duration-300 ${
         selected
           ? `${style.borderSel} shadow-lg ring-4 ring-offset-1 ${
               type === "risk" ? "ring-rose-100" : "ring-blue-100"

@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
   MarkerType,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
   Panel,
   type Edge,
   type Node
@@ -14,6 +15,8 @@ import {
 import { BookOpenCheck, Bot, CheckCircle2, GitBranch, Loader2, Map, Radar, Send } from "lucide-react";
 import type { AnalysisResult, EngineerRole, OnboardingTask } from "@/lib/types";
 import { CustomArchitectureNode, nodeStyles } from "@/components/custom-node";
+import { FlowFitView } from "@/components/flow-fit-view";
+import { MentorMarkdown } from "@/components/mentor-markdown";
 import { layoutGraph } from "@/lib/graph-layout";
 
 const roleOptions: { label: string; value: EngineerRole }[] = [
@@ -40,7 +43,9 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+  const [chatError, setChatError] = useState("");
   const [error, setError] = useState("");
+  const answerRef = useRef<HTMLDivElement>(null);
 
   type JobPollResponse = {
     jobId: string;
@@ -199,6 +204,8 @@ export default function Home() {
     setIsAnalyzing(true);
     setError("");
     setAnswer("");
+    setQuestion("");
+    setChatError("");
     setAnalyzeProgress("Starting analysis...");
 
     const response = await fetch("/api/analyze", {
@@ -235,24 +242,49 @@ export default function Home() {
   }
 
   async function askQuestion() {
-    if (!analysis || !question.trim()) return;
+    const trimmed = question.trim();
+    if (!analysis || !trimmed || isAsking) return;
+
     setIsAsking(true);
+    setChatError("");
     setAnswer("");
+    setQuestion("");
 
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jobId: analysis.jobId,
-        nodeId: selectedNode?.id,
-        taskId: selectedTask?.id,
-        question
-      })
-    });
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: analysis.jobId,
+          nodeId: selectedNode?.id,
+          taskId: selectedTask?.id,
+          question: trimmed
+        })
+      });
 
-    const result = (await response.json()) as { answer?: string };
-    setAnswer(result.answer ?? "No answer returned.");
-    setIsAsking(false);
+      const result = (await response.json()) as { answer?: string; error?: string };
+
+      if (!response.ok) {
+        setChatError(result.error ?? "Could not reach the mentor. Try again.");
+        return;
+      }
+
+      setAnswer(result.answer ?? "No answer returned.");
+      requestAnimationFrame(() => {
+        answerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    } catch {
+      setChatError("Network error. Check your connection and try again.");
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
+  function handleQuestionKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void askQuestion();
+    }
   }
 
   return (
@@ -347,19 +379,25 @@ export default function Home() {
 
         <section className="space-y-5 flex-1 min-w-0">
           {/* Graph Section (Full Width!) */}
-          <section className="h-[680px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm w-full">
+          <section className="h-[min(720px,75vh)] min-h-[560px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm w-full">
             {analysis ? (
-              <div className="relative h-full bg-slate-950">
+              <div className="relative h-full">
+                <ReactFlowProvider>
                 <ReactFlow
                   nodes={flow.nodes}
                   edges={flow.edges}
                   nodeTypes={nodeTypes}
                   fitView
-                  fitViewOptions={{ padding: 0.06 }}
+                  fitViewOptions={{ padding: 0.14, minZoom: 0.15, maxZoom: 1.25 }}
+                  minZoom={0.08}
+                  maxZoom={1.5}
                   onNodeClick={(_, node) => setSelectedNodeId(node.id)}
                   nodesDraggable
+                  nodesConnectable={false}
+                  proOptions={{ hideAttribution: true }}
                   className="stackmap-flow"
                 >
+                  <FlowFitView nodeCount={flow.nodes.length} />
                   <Background color="#cbd5e1" gap={18} size={1.2} />
                   
                   <Panel position="top-left">
@@ -402,11 +440,27 @@ export default function Home() {
                   <MiniMap
                     pannable
                     zoomable
-                    maskColor="rgba(15, 23, 42, 0.05)"
+                    maskColor="rgba(15, 23, 42, 0.06)"
                     className="stackmap-minimap"
+                    nodeColor={(node) => {
+                      const type = (node.data as { type?: string })?.type;
+                      const colors: Record<string, string> = {
+                        entry: "#0d9488",
+                        component: "#0891b2",
+                        api: "#7c3aed",
+                        service: "#2563eb",
+                        shared_library: "#4f46e5",
+                        data: "#059669",
+                        config: "#64748b",
+                        test: "#d97706",
+                        risk: "#e11d48"
+                      };
+                      return (type && colors[type]) || "#94a3b8";
+                    }}
                   />
                   <Controls className="stackmap-controls" showInteractive={false} />
                 </ReactFlow>
+                </ReactFlowProvider>
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-8 text-center bg-[radial-gradient(circle_at_top_left,#dbeafe,transparent_32%),linear-gradient(135deg,#ffffff,#f8fafc)]">
@@ -672,23 +726,43 @@ export default function Home() {
                 <Bot size={18} className="text-blue-700" />
                 <h2 className="font-semibold">Mentor Chat</h2>
               </div>
-              <div className="flex gap-2">
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void askQuestion();
+                }}
+              >
                 <input
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+                  onKeyDown={handleQuestionKeyDown}
+                  disabled={isAsking}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 disabled:bg-slate-50 disabled:text-slate-500"
                   placeholder="Ask about the selected node or mission"
+                  autoComplete="off"
                 />
                 <button
-                  onClick={askQuestion}
-                  disabled={isAsking}
-                  className="flex items-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
+                  type="submit"
+                  disabled={isAsking || !question.trim()}
+                  className="flex shrink-0 items-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   {isAsking ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                   Ask
                 </button>
-              </div>
-              {answer ? <p className="mt-4 rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-700">{answer}</p> : null}
+              </form>
+              {chatError ? <p className="mt-3 text-sm text-rose-700">{chatError}</p> : null}
+              {isAsking ? (
+                <div className="mt-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <Loader2 size={16} className="animate-spin text-blue-600" />
+                  Mentor is thinking…
+                </div>
+              ) : null}
+              {answer && !isAsking ? (
+                <div ref={answerRef} className="mt-4">
+                  <MentorMarkdown content={answer} />
+                </div>
+              ) : null}
             </section>
           ) : null}
         </section>
