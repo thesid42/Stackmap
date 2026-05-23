@@ -37,10 +37,10 @@ textarea {
 /* Beautiful Canvas Background for the flow */
 .stackmap-flow {
   background:
-    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%),
-    radial-gradient(circle at 50% 50%, rgba(124, 58, 237, 0.04) 0%, transparent 50%),
-    linear-gradient(135deg, #f8fafc 0%, #f1f5f9 60%, #f8fafc 100%);
+    radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.12) 0%, transparent 38%),
+    radial-gradient(circle at 90% 80%, rgba(5, 150, 105, 0.1) 0%, transparent 38%),
+    radial-gradient(circle at 50% 50%, rgba(109, 40, 217, 0.08) 0%, transparent 48%),
+    linear-gradient(135deg, #eaf1fb 0%, #f8fafc 48%, #e8f3ff 100%);
 }
 
 /* Base Node Transition & Scaling Rules */
@@ -79,7 +79,7 @@ textarea {
 }
 
 .react-flow__edge-path {
-  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.06));
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.16));
 }
 
 .react-flow__edge-text {
@@ -111,15 +111,15 @@ textarea {
 }
 
 .active-flow-edge-blue {
-  filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.5)) drop-shadow(0 0 1px rgba(59, 130, 246, 0.3));
+  filter: drop-shadow(0 0 7px rgba(37, 99, 235, 0.75)) drop-shadow(0 0 2px rgba(37, 99, 235, 0.55));
 }
 
 .active-flow-edge-rose {
-  filter: drop-shadow(0 0 4px rgba(225, 29, 72, 0.5)) drop-shadow(0 0 1px rgba(225, 29, 72, 0.3));
+  filter: drop-shadow(0 0 7px rgba(225, 29, 72, 0.75)) drop-shadow(0 0 2px rgba(225, 29, 72, 0.55));
 }
 
 .active-flow-edge-emerald {
-  filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.5)) drop-shadow(0 0 1px rgba(16, 185, 129, 0.3));
+  filter: drop-shadow(0 0 7px rgba(5, 150, 105, 0.75)) drop-shadow(0 0 2px rgba(5, 150, 105, 0.55));
 }
 
 /* Minimap and controls glassmorphic upgrades */

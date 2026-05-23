@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
-  Controls,
   MarkerType,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   type Edge,
@@ -85,8 +83,8 @@ export default function Home() {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  const graphNodes = analysis?.graph?.nodes ?? [];
-  const graphTasks = analysis?.tasks ?? [];
+  const graphNodes = useMemo(() => analysis?.graph?.nodes ?? [], [analysis?.graph?.nodes]);
+  const graphTasks = useMemo(() => analysis?.tasks ?? [], [analysis?.tasks]);
   const missionPath = useMemo(() => (graphTasks.length ? missionProgress(graphTasks) : null), [graphTasks]);
   const sortedTasks = missionPath?.sorted ?? sortMissions(graphTasks);
   const nextMission = graphTasks.length ? getNextMission(graphTasks) : undefined;
@@ -199,7 +197,7 @@ export default function Home() {
         type: "smoothstep",
         animated: edge.type === "publishes" || edge.type === "routes_to" || (anyFocused && isActive),
         markerEnd: { type: MarkerType.ArrowClosed, color },
-        style: { stroke: color, strokeWidth: anyFocused && isActive ? 2.5 : 1.8, opacity: isActive ? 1 : 0.35 }
+        style: { stroke: color, strokeWidth: anyFocused && isActive ? 3 : 1.2, opacity: isActive ? 1 : 0.08 }
       };
     });
 
@@ -328,13 +326,6 @@ export default function Home() {
       setChatError("Network error. Try again.");
     } finally {
       setIsAsking(false);
-    }
-  }
-
-  function handleQuestionKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void askQuestion();
     }
   }
 
@@ -512,8 +503,6 @@ export default function Home() {
               className="stackmap-flow"
             >
               <Background color={theme === "dark" ? "#334155" : "#cbd5e1"} gap={16} size={1} />
-              <MiniMap className="stackmap-minimap" zoomable pannable />
-              <Controls className="stackmap-controls" />
               <FlowFitView nodeCount={flow.nodes.length} />
             </ReactFlow>
           </ReactFlowProvider>
