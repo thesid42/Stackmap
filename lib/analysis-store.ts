@@ -60,7 +60,7 @@ export async function createJob(input: { jobId: string; repoUrl: string; role: E
     status: "processing",
     repoUrl: input.repoUrl,
     role: input.role,
-    progress: "Cloning repository...",
+    progress: "Cloning repository (this may take a few minutes)...",
     createdAt: now,
     updatedAt: now
   };
