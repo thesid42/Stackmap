@@ -130,6 +130,8 @@ textarea {
   background: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(8px) !important;
   box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08) !important;
+  right: calc(300px + 1.25rem) !important;
+  bottom: 6.5rem !important;
 }
 
 .stackmap-controls {
@@ -139,6 +141,8 @@ textarea {
   background: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(8px) !important;
   box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08) !important;
+  left: calc(280px + 1.25rem) !important;
+  bottom: 6.5rem !important;
 }
 
 .stackmap-controls button {
@@ -154,6 +158,30 @@ textarea {
 
 .story-stage {
   width: 100%;
+}
+
+/* Compact story preview in the left sidebar */
+.story-sidebar-preview .story-stage:not(.story-stage-large) .story-visual {
+  min-height: 100px;
+  max-height: 120px;
+}
+
+.story-sidebar-preview .story-stage:not(.story-stage-large) .story-caption {
+  max-width: 70%;
+  padding: 8px 10px;
+}
+
+.story-sidebar-preview .story-stage:not(.story-stage-large) .story-title {
+  font-size: 11px;
+  line-clamp: 1;
+}
+
+.story-sidebar-preview .story-stage:not(.story-stage-large) .story-narration {
+  display: none;
+}
+
+.story-sidebar-preview .story-stage:not(.story-stage-large) .story-facts {
+  display: none;
 }
 
 .story-stage-large .story-visual {
@@ -686,6 +714,29 @@ html.dark .stackmap-controls button:hover {
     box-shadow:
       0 24px 64px rgba(0, 0, 0, 0.45),
       inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-btn {
+    @apply inline-flex shrink-0 items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold backdrop-blur-md transition;
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.4);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    color: #334155;
+  }
+
+  .glass-btn:hover {
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  html.dark .glass-btn {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(30, 41, 59, 0.55);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+  }
+
+  html.dark .glass-btn:hover {
+    background: rgba(51, 65, 85, 0.75);
   }
 
   .glass-mission-card {

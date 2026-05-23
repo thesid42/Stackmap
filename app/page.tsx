@@ -11,7 +11,22 @@ import {
   type Edge,
   type Node
 } from "@xyflow/react";
-import { BookOpenCheck, Bot, CheckCircle2, Clapperboard, Expand, GitBranch, Loader2, Lock, Map, Radar, Send, X } from "lucide-react";
+import {
+  BookOpenCheck,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clapperboard,
+  Expand,
+  GitBranch,
+  Loader2,
+  Lock,
+  Map,
+  Radar,
+  Send,
+  X
+} from "lucide-react";
 import type { AnalysisResult, EngineerRole, OnboardingTask, StoryModeBrief } from "@/lib/types";
 import { CustomArchitectureNode, nodeStyles } from "@/components/custom-node";
 import { FlowFitView } from "@/components/flow-fit-view";
@@ -49,6 +64,7 @@ export default function Home() {
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
   const [storyError, setStoryError] = useState("");
   const [chatError, setChatError] = useState("");
+  const [isMentorChatMinimized, setIsMentorChatMinimized] = useState(false);
   const [error, setError] = useState("");
   const [checkedCriteria, setCheckedCriteria] = useState<Record<string, boolean[]>>({});
   const answerRef = useRef<HTMLDivElement>(null);
@@ -283,6 +299,7 @@ export default function Home() {
     const trimmed = question.trim();
     if (!analysis || !trimmed || isAsking) return;
     setIsAsking(true);
+    setIsMentorChatMinimized(false);
     setChatError("");
     setAnswer("");
     setQuestion("");
@@ -305,6 +322,7 @@ export default function Home() {
         return;
       }
       setAnswer(result.answer ?? "No answer returned.");
+      setIsMentorChatMinimized(false);
       requestAnimationFrame(() => answerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     } catch {
       setChatError("Network error. Try again.");
@@ -494,8 +512,8 @@ export default function Home() {
               className="stackmap-flow"
             >
               <Background color={theme === "dark" ? "#334155" : "#cbd5e1"} gap={16} size={1} />
-              <MiniMap className="stackmap-minimap !right-4 !bottom-4" zoomable pannable />
-              <Controls className="stackmap-controls !left-4 !bottom-24" />
+              <MiniMap className="stackmap-minimap" zoomable pannable />
+              <Controls className="stackmap-controls" />
               <FlowFitView nodeCount={flow.nodes.length} />
             </ReactFlow>
           </ReactFlowProvider>
@@ -521,7 +539,7 @@ export default function Home() {
       </div>
 
       {/* Floating UI Layer */}
-      <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4">
+      <div className="pointer-events-none absolute inset-0 z-10 flex h-full min-h-0 flex-col gap-3 p-3">
         {/* Floating Header */}
         <header className="glass-header pointer-events-auto flex w-full shrink-0 items-center justify-between">
           <div className="flex items-center gap-3">
@@ -560,11 +578,10 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Center Grid containing Sidebars */}
-        <div className="my-4 grid min-h-0 w-full flex-1 grid-cols-[minmax(0,300px)_1fr_minmax(0,320px)] gap-3 overflow-hidden">
-          
-          {/* Left Sidebar Overlay */}
-          <aside className="pointer-events-auto flex flex-col gap-4 overflow-hidden max-h-full min-h-0">
+        {/* Fixed-width sidebars so mentor chat never compresses the columns */}
+        <div className="grid min-h-0 w-full flex-1 grid-cols-[280px_minmax(0,1fr)_300px] gap-3 overflow-hidden">
+          {/* Left Sidebar */}
+          <aside className="pointer-events-auto thin-scrollbar flex w-[280px] min-w-[280px] max-w-[280px] min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-0.5">
             {/* Codebase Scanner Card */}
             <section className="glass-panel flex shrink-0 flex-col p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -631,8 +648,8 @@ export default function Home() {
             </section>
 
             {analysis ? (
-              <section className="glass-panel flex shrink-0 flex-col p-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
+              <section className="glass-panel flex shrink-0 flex-col p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Clapperboard size={16} className="text-violet-600 dark:text-violet-400" />
                     <div>
@@ -664,8 +681,8 @@ export default function Home() {
                 ) : null}
 
                 {storyBrief ? (
-                  <div className="mt-2 min-h-0">
-                    <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="mt-2 min-h-0 max-h-[200px] overflow-hidden">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
                       <span className="truncate text-[11px] font-semibold text-slate-900 dark:text-slate-100">{storyBrief.title}</span>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <span className="rounded-full border border-violet-200/50 bg-violet-50/70 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-700 dark:border-violet-500/30 dark:bg-violet-950/40 dark:text-violet-300">
@@ -683,31 +700,31 @@ export default function Home() {
                       </div>
                     </div>
                     {currentStoryScene ? (
-                      <div>
+                      <div className="story-sidebar-preview">
                         {renderStoryStage("compact")}
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => void playStory()}
                             disabled={!storyBrief.audioUrl}
-                            className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50 dark:bg-slate-700"
+                            className="rounded-lg bg-violet-700 px-2.5 py-1 text-[10px] font-semibold text-white disabled:opacity-50 dark:bg-violet-600"
                           >
                             Play
                           </button>
-                          <button type="button" onClick={pauseStory} className="glass-mission-card px-2 py-1 text-[10px] font-semibold">
+                          <button type="button" onClick={pauseStory} className="glass-btn !px-2.5 !py-1 !text-[10px]">
                             Pause
                           </button>
                           <button
                             type="button"
                             onClick={() => setStoryClipIndex((index) => Math.max(0, index - 1))}
-                            className="glass-mission-card px-2 py-1 text-[10px] font-semibold"
+                            className="glass-btn !px-2.5 !py-1 !text-[10px]"
                           >
                             Prev
                           </button>
                           <button
                             type="button"
                             onClick={() => setStoryClipIndex((index) => Math.min((storyBrief.scenes.length ?? 1) - 1, index + 1))}
-                            className="glass-mission-card px-2 py-1 text-[10px] font-semibold"
+                            className="glass-btn !px-2.5 !py-1 !text-[10px]"
                           >
                             Next
                           </button>
@@ -741,7 +758,7 @@ export default function Home() {
                   </h2>
                   <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">{analysis.familiarity.overall}%</span>
                 </div>
-                <div className="thin-scrollbar max-h-[140px] space-y-2 overflow-y-auto pr-1">
+                <div className="thin-scrollbar max-h-[120px] space-y-2 overflow-y-auto pr-1">
                   {Object.entries(analysis.familiarity.areas).map(([area, score]) => (
                     <div key={area} className="text-[11px]">
                       <div className="mb-0.5 flex justify-between font-semibold text-slate-600 dark:text-slate-400">
@@ -765,7 +782,7 @@ export default function Home() {
 
             {/* Week-1 onboarding path */}
             {analysis?.tasks?.length ? (
-              <section className="glass-panel flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+              <section className="glass-panel flex shrink-0 flex-col p-4">
                 <div className="mb-2 flex shrink-0 items-center justify-between">
                   <div className="flex items-center gap-2">
                     <BookOpenCheck size={16} className="text-emerald-700 dark:text-emerald-400" />
@@ -791,7 +808,7 @@ export default function Home() {
                   </p>
                 ) : null}
 
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 thin-scrollbar">
+                <div className="max-h-[min(32vh,280px)] space-y-2 overflow-y-auto pr-1 thin-scrollbar">
                   {sortedTasks.map((task, index) => {
                     const isSelected = selectedTaskId === task.id;
                     const isDone = task.status === "done";
@@ -855,12 +872,12 @@ export default function Home() {
           {/* Empty space in grid that lets the React Flow background show through */}
           <div className="min-h-0 pointer-events-none" />
 
-          {/* Right Sidebar Overlay */}
-          <aside className="pointer-events-auto flex flex-col gap-4 overflow-hidden max-h-full min-h-0">
+          {/* Right Sidebar */}
+          <aside className="pointer-events-auto thin-scrollbar flex w-[300px] min-w-[300px] max-w-[300px] min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pl-0.5">
             {analysis?.graph?.nodes?.length ? (
               <>
                 {/* Node Inspector Panel */}
-                <section className="glass-panel flex max-h-[50%] min-h-0 shrink-0 flex-col overflow-hidden p-4">
+                <section className="glass-panel flex max-h-[min(38vh,320px)] shrink-0 flex-col overflow-hidden p-4">
                   <div className="mb-2.5 flex shrink-0 items-center justify-between border-b border-slate-200/60 pb-2 dark:border-slate-700/60">
                     <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Component Inspector</h2>
                     <span className="rounded-full border border-white/40 bg-white/40 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500 backdrop-blur-md dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-400">
@@ -926,7 +943,7 @@ export default function Home() {
                 </section>
 
                 {/* Mission Detail Panel */}
-                <section className="glass-panel flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+                <section className="glass-panel flex shrink-0 flex-col overflow-hidden p-4">
                   <div className="mb-2.5 flex shrink-0 items-center justify-between border-b border-slate-200/60 pb-2 dark:border-slate-700/60">
                     <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Mission Workspace</h2>
                     <span className="rounded-full border border-emerald-200/50 bg-emerald-50/70 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-700 backdrop-blur-md dark:border-emerald-500/25 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -1057,69 +1074,112 @@ export default function Home() {
             )}
           </aside>
         </div>
-
-        {/* Floating Bottom Panel - Mentor Chat */}
-        {analysis && (
-          <footer className="pointer-events-auto mx-auto w-full max-w-3xl shrink-0 z-20 flex flex-col gap-2">
-            {/* Floating Chat Answer Bubble */}
-            {chatError ? (
-              <p className="rounded-xl border border-rose-200/60 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 backdrop-blur-md dark:border-rose-500/30 dark:bg-rose-950/50 dark:text-rose-300">
-                {chatError}
-              </p>
-            ) : null}
-            {answer && !isAsking ? (
-              <div ref={answerRef} className="glass-mentor-bubble thin-scrollbar">
-                <div className="mb-2 flex shrink-0 items-center gap-1.5 font-black text-[9px] uppercase tracking-wider text-blue-300">
-                  <Bot size={12} />
-                  Mentor AI Response
-                </div>
-                <MentorMarkdown content={answer} />
-              </div>
-            ) : null}
-            {isAsking ? (
-              <div className="glass-chat-bar flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                <Loader2 size={14} className="animate-spin text-blue-600" />
-                Mentor is thinking…
-              </div>
-            ) : null}
-
-            {/* Floating Chat Input Bar */}
-            <section className="glass-chat-bar flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-slate-900/90 text-white shadow-inner backdrop-blur-md dark:bg-slate-800/90">
-                <Bot size={16} />
-              </div>
-              <input
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void askQuestion();
-                  }
-                }}
-                className="flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
-                placeholder={
-                  selectedNode 
-                    ? `Ask anything about ${selectedNode.label} or the missions...` 
-                    : "Ask anything about the system..."
-                }
-              />
-              <button
-                onClick={() => void askQuestion()}
-                disabled={isAsking || !question.trim()}
-                className="flex h-8 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-950/90 px-4 text-xs font-bold text-white shadow-lg backdrop-blur-md transition hover:bg-slate-800 disabled:border-transparent disabled:bg-slate-200/80 disabled:text-slate-400 dark:disabled:bg-slate-800/50"
-              >
-                {isAsking ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Send size={13} />
-                )}
-                <span>Ask</span>
-              </button>
-            </section>
-          </footer>
-        )}
       </div>
+
+      {/* Mentor chat floats over the map only — out of layout flow so sidebars keep width */}
+      {analysis && (
+        <footer className="pointer-events-none fixed bottom-3 left-[calc(0.75rem+280px+0.75rem)] right-[calc(0.75rem+300px+0.75rem)] z-30 flex flex-col items-center gap-2">
+          <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2">
+            {isMentorChatMinimized ? (
+              <button
+                type="button"
+                onClick={() => setIsMentorChatMinimized(false)}
+                className="glass-chat-bar flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:border-blue-300/40 dark:hover:border-blue-500/30"
+                aria-expanded={false}
+                aria-label="Expand mentor chat"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-slate-900/90 text-white dark:bg-slate-800/90">
+                    <Bot size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Mentor AI</span>
+                    {isAsking ? (
+                      <p className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                        <Loader2 size={11} className="animate-spin" />
+                        Thinking…
+                      </p>
+                    ) : answer ? (
+                      <p className="truncate text-[10px] text-blue-600 dark:text-blue-400">Response ready — tap to expand</p>
+                    ) : (
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">Tap to ask a question</p>
+                    )}
+                  </div>
+                </div>
+                <ChevronUp size={18} className="shrink-0 text-slate-500 dark:text-slate-400" />
+              </button>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Mentor chat
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsMentorChatMinimized(true)}
+                    className="glass-icon-btn !h-8 !w-8"
+                    aria-label="Minimize mentor chat"
+                    title="Minimize"
+                  >
+                    <ChevronDown size={16} className="text-slate-600 dark:text-slate-300" />
+                  </button>
+                </div>
+
+                {chatError ? (
+                  <p className="rounded-xl border border-rose-200/60 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 backdrop-blur-md dark:border-rose-500/30 dark:bg-rose-950/50 dark:text-rose-300">
+                    {chatError}
+                  </p>
+                ) : null}
+                {answer && !isAsking ? (
+                  <div ref={answerRef} className="glass-mentor-bubble thin-scrollbar w-full">
+                    <div className="mb-2 flex shrink-0 items-center gap-1.5 font-black text-[9px] uppercase tracking-wider text-blue-300">
+                      <Bot size={12} />
+                      Mentor AI Response
+                    </div>
+                    <MentorMarkdown content={answer} />
+                  </div>
+                ) : null}
+                {isAsking ? (
+                  <div className="glass-chat-bar flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                    <Loader2 size={14} className="animate-spin text-blue-600" />
+                    Mentor is thinking…
+                  </div>
+                ) : null}
+
+                <section className="glass-chat-bar flex w-full items-center gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-slate-900/90 text-white shadow-inner backdrop-blur-md dark:bg-slate-800/90">
+                    <Bot size={16} />
+                  </div>
+                  <input
+                    value={question}
+                    onChange={(event) => setQuestion(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void askQuestion();
+                      }
+                    }}
+                    className="min-w-0 flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    placeholder={
+                      selectedNode
+                        ? `Ask anything about ${selectedNode.label} or the missions...`
+                        : "Ask anything about the system..."
+                    }
+                  />
+                  <button
+                    onClick={() => void askQuestion()}
+                    disabled={isAsking || !question.trim()}
+                    className="flex h-8 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-950/90 px-4 text-xs font-bold text-white shadow-lg backdrop-blur-md transition hover:bg-slate-800 disabled:border-transparent disabled:bg-slate-200/80 disabled:text-slate-400 dark:disabled:bg-slate-800/50"
+                  >
+                    {isAsking ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                    <span>Ask</span>
+                  </button>
+                </section>
+              </>
+            )}
+          </div>
+        </footer>
+      )}
 
       {isStoryModalOpen && storyBrief ? (
         <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-md">
@@ -1145,39 +1205,39 @@ export default function Home() {
             </div>
             <div className="thin-scrollbar overflow-auto p-5">
               {renderStoryStage("large")}
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void playStory()}
-                  disabled={!storyBrief.audioUrl}
-                  className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-600"
-                >
-                  Play
-                </button>
-                <button type="button" onClick={pauseStory} className="glass-mission-card px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Pause
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStoryClipIndex((index) => Math.max(0, index - 1))}
-                  className="glass-mission-card px-3 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
-                >
-                  Prev
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStoryClipIndex((index) => Math.min(storyBrief.scenes.length - 1, index + 1))}
-                  className="glass-mission-card px-3 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
-                >
-                  Next
-                </button>
-                <div className="ml-auto min-w-[220px] flex-1">
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100/80 dark:bg-slate-800/80">
-                    <div
-                      className="h-full rounded-full bg-violet-600 transition-all"
-                      style={{ width: `${((storyClipIndex + 1) / storyBrief.scenes.length) * 100}%` }}
-                    />
-                  </div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void playStory()}
+                    disabled={!storyBrief.audioUrl}
+                    className="inline-flex shrink-0 items-center justify-center rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                  >
+                    Play
+                  </button>
+                  <button type="button" onClick={pauseStory} className="glass-btn">
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStoryClipIndex((index) => Math.max(0, index - 1))}
+                    className="glass-btn"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStoryClipIndex((index) => Math.min(storyBrief.scenes.length - 1, index + 1))}
+                    className="glass-btn"
+                  >
+                    Next
+                  </button>
+                </div>
+                <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100/80 dark:bg-slate-800/80">
+                  <div
+                    className="h-full rounded-full bg-violet-600 transition-all"
+                    style={{ width: `${((storyClipIndex + 1) / storyBrief.scenes.length) * 100}%` }}
+                  />
                 </div>
               </div>
             </div>

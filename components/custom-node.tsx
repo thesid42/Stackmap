@@ -146,7 +146,7 @@ export function CustomArchitectureNode({
               type === "risk" ? "ring-rose-100" : "ring-blue-100"
             } scale-105 z-20`
           : `${style.border} shadow-[0_6px_20px_rgba(15,23,42,0.05)] hover:scale-102 hover:shadow-md hover:border-slate-300`
-      } ${isDimmed ? "opacity-25 scale-95 saturate-[60%] blur-[0.2px] hover:opacity-50" : "opacity-100"}`}
+      } ${isDimmed ? "opacity-[0.72] saturate-[85%] hover:opacity-90" : "opacity-100"}`}
     >
       {/* Decorative vertical color accent */}
       <div
