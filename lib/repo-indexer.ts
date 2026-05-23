@@ -260,19 +260,25 @@ function humanizeServiceName(rootPath: string) {
     .join(" ");
 }
 
-export function formatIndexForPrompt(index: RepoIndex) {
+export function formatIndexForPrompt(index: RepoIndex, options?: { compact?: boolean }) {
+  const compact = options?.compact ?? false;
+  const serviceLimit = compact ? 10 : index.services.length;
+  const filesPerService = compact ? 3 : 8;
+  const hintLimit = compact ? 18 : 40;
+
   const services = index.services
+    .slice(0, serviceLimit)
     .map(
       (service) =>
         `- ${service.name} (${service.rootPath}, ${service.files.length} files): ${service.files
-          .slice(0, 8)
+          .slice(0, filesPerService)
           .map((file) => file.path)
           .join(", ")}`
     )
     .join("\n");
 
   const hints = index.importHints
-    .slice(0, 40)
+    .slice(0, hintLimit)
     .map((hint) => `${hint.sourceFile} -> ${hint.target} (${hint.kind})`)
     .join("\n");
 

@@ -5,6 +5,8 @@ import {
   completeJob,
   createJob,
   failJob,
+  getJob,
+  updateJobManagedSession,
   updateJobProgress
 } from "@/lib/analysis-store";
 import { mergeAgentOutputs, normalizeGraph } from "@/lib/graph-builder";
@@ -49,6 +51,7 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
 
     await updateJobProgress(jobId, "Indexing codebase...");
     const scan = await scanRepository(cloned.repo, cloned.rootPath);
+
     const index = await buildRepoIndex({
       repoUrl: scan.repo.displayUrl,
       rootPath: cloned.rootPath,
@@ -65,18 +68,27 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
       framework: scan.framework
     };
 
-    await updateJobProgress(jobId, "Running specialist agents...");
+    await updateJobProgress(jobId, "Running architecture analysis...");
     const orchestratorInput = buildOrchestratorInput({
       repo: scan.repo,
       fileTree: scan.fileTree,
       snippets: scan.snippets,
       index,
-      role
+      role,
+      compactIndex: scan.limits.compactTree
     });
 
-    const agentOutputs = await runAgentOrchestration(orchestratorInput, (message) => {
-      void updateJobProgress(jobId, message);
-    });
+    const { outputs: agentOutputs, managedSession } = await runAgentOrchestration(
+      orchestratorInput,
+      (message) => {
+        void updateJobProgress(jobId, message);
+      },
+      { sourceType: index.sourceType, compactIndex: scan.limits.compactTree }
+    );
+
+    if (managedSession) {
+      await updateJobManagedSession(jobId, managedSession);
+    }
 
     await updateJobProgress(jobId, "Building architecture graph...");
     const merged = mergeAgentOutputs({
@@ -88,11 +100,13 @@ async function runAnalysisJob(jobId: string, repoUrl: string, role: EngineerRole
     });
 
     const { graph, tasks } = normalizeGraph(merged.graph, merged.tasks);
+    const job = await getJob(jobId);
     const result: AnalysisResult = {
       jobId,
       graph,
       tasks,
-      familiarity: calculateFamiliarity(tasks)
+      familiarity: calculateFamiliarity(tasks),
+      managedAgent: job?.managedAgent
     };
 
     await completeJob(jobId, result);

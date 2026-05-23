@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getNextMission } from "@/lib/mission-path";
+import type { ManagedAgentSession } from "@/lib/types";
 import type { AnalysisResult, EngineerRole, FamiliarityScore, OnboardingTask, StackMapGraph } from "@/lib/types";
 
 export type JobStatus = "processing" | "complete" | "failed";
@@ -15,6 +16,7 @@ export type JobRecord = {
   graph?: StackMapGraph;
   tasks?: OnboardingTask[];
   familiarity?: FamiliarityScore;
+  managedAgent?: ManagedAgentSession;
   createdAt: string;
   updatedAt: string;
 };
@@ -69,6 +71,15 @@ export async function createJob(input: { jobId: string; repoUrl: string; role: E
   return job;
 }
 
+export async function updateJobManagedSession(jobId: string, managedAgent: ManagedAgentSession) {
+  const job = await loadJob(jobId);
+  if (!job) return null;
+  job.managedAgent = managedAgent;
+  job.updatedAt = new Date().toISOString();
+  await persistJob(job);
+  return job;
+}
+
 export async function updateJobProgress(jobId: string, progress: string) {
   const job = await loadJob(jobId);
   if (!job) return null;
@@ -89,6 +100,7 @@ export async function completeJob(jobId: string, result: AnalysisResult) {
     graph: result.graph,
     tasks: result.tasks,
     familiarity: result.familiarity,
+    managedAgent: result.managedAgent ?? job.managedAgent,
     updatedAt: new Date().toISOString()
   };
   await persistJob(updated);
@@ -137,7 +149,8 @@ export async function getAnalysis(jobId: string): Promise<AnalysisResult | null>
     jobId: job.jobId,
     graph: job.graph,
     tasks: job.tasks,
-    familiarity: job.familiarity
+    familiarity: job.familiarity,
+    managedAgent: job.managedAgent
   };
 }
 
@@ -201,6 +214,7 @@ export function jobToResponse(job: JobRecord) {
     error: job.error,
     graph: job.graph,
     tasks: job.tasks,
-    familiarity: job.familiarity
+    familiarity: job.familiarity,
+    managedAgent: job.managedAgent
   };
 }

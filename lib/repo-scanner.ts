@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } fro
 import path from "node:path";
 import { promisify } from "node:util";
 import { classifyFile, detectLanguage, shouldIndexFile, type IndexedFile } from "@/lib/repo-indexer";
+import { getScanLimits, type ScanLimits } from "@/lib/scan-limits";
 
 const execFileAsync = promisify(execFile);
 
@@ -139,11 +140,7 @@ export async function isRepositoryCached(repoUrl: string) {
   return isValidCache(repoCachePath(repo));
 }
 
-const maxIndexedFiles = 500;
-const maxSnippetFiles = 55;
-const maxFileBytes = 180_000;
-const maxSnippetChars = 3_500;
-const maxPromptChars = 95_000;
+export type RepoScanLimits = ScanLimits;
 
 const binaryExtensions = new Set([
   ".png",
@@ -186,6 +183,8 @@ export type RepoScan = {
   language: string;
   framework?: string;
   sourceType: "single_repo" | "monorepo" | "multi_repo";
+  walkedFileCount: number;
+  limits: ScanLimits;
 };
 
 export function parseGitHubRepoUrl(repoUrl: string): RepoIdentity {
@@ -283,12 +282,14 @@ export async function cloneRepository(repoUrl: string) {
 }
 
 export async function scanRepository(repo: RepoIdentity, rootPath: string): Promise<RepoScan> {
-  const files = await walkFiles(rootPath);
-  const indexed = files
+  const walked = await walkFiles(rootPath);
+  const limits = getScanLimits(walked.length);
+
+  const indexed = walked
     .filter((file) => shouldIndexFile(file.relativePath))
-    .filter((file) => file.size <= maxFileBytes)
+    .filter((file) => file.size <= limits.maxFileBytes)
     .filter((file) => !binaryExtensions.has(path.extname(file.relativePath).toLowerCase()))
-    .slice(0, maxIndexedFiles)
+    .slice(0, limits.maxIndexedFiles)
     .map((file) => ({
       path: file.relativePath,
       language: detectLanguage(file.relativePath),
@@ -296,34 +297,46 @@ export async function scanRepository(repo: RepoIdentity, rootPath: string): Prom
       kind: classifyFile(file.relativePath)
     }));
 
-  const snippets = await collectSnippets(rootPath, indexed);
+  const snippets = await collectSnippets(rootPath, indexed, limits);
   const packageJson = snippets.find((snippet) => snippet.path === "package.json")?.content;
 
   return {
     repo,
     rootPath,
     files: indexed,
-    fileTree: buildFileTree(indexed),
+    fileTree: limits.compactTree ? buildCompactFileTree(indexed) : buildFileTree(indexed, limits),
     snippets,
     language: detectPrimaryLanguage(indexed),
     framework: detectFramework(indexed, packageJson),
-    sourceType: detectSourceType(indexed, packageJson)
+    sourceType: detectSourceType(indexed, packageJson),
+    walkedFileCount: walked.length,
+    limits
   };
 }
 
-async function walkFiles(rootPath: string, currentPath = rootPath): Promise<{ fullPath: string; relativePath: string; size: number }[]> {
+async function walkFiles(
+  rootPath: string,
+  currentPath = rootPath,
+  walkedCount = { n: 0 },
+  maxWalkFiles = getScanLimits(0).maxWalkFiles
+): Promise<{ fullPath: string; relativePath: string; size: number }[]> {
+  if (walkedCount.n >= maxWalkFiles) return [];
+
   const entries = await readdir(currentPath, { withFileTypes: true });
   const results = await Promise.all(
     entries.map(async (entry) => {
+      if (walkedCount.n >= maxWalkFiles) return [];
+
       const fullPath = path.join(currentPath, entry.name);
       const relativePath = toRepoPath(path.relative(rootPath, fullPath));
 
       if (entry.isDirectory()) {
         if (!shouldIndexFile(relativePath)) return [];
-        return walkFiles(rootPath, fullPath);
+        return walkFiles(rootPath, fullPath, walkedCount, maxWalkFiles);
       }
 
       if (!entry.isFile()) return [];
+      walkedCount.n += 1;
       const info = await stat(fullPath);
       return [{ fullPath, relativePath, size: info.size }];
     })
@@ -332,18 +345,18 @@ async function walkFiles(rootPath: string, currentPath = rootPath): Promise<{ fu
   return results.flat();
 }
 
-async function collectSnippets(rootPath: string, files: IndexedFile[]) {
-  const ranked = [...files].sort((a, b) => scoreFile(b) - scoreFile(a)).slice(0, maxSnippetFiles);
+async function collectSnippets(rootPath: string, files: IndexedFile[], limits: ScanLimits) {
+  const ranked = [...files].sort((a, b) => scoreFile(b) - scoreFile(a)).slice(0, limits.maxSnippetFiles);
   const snippets: RepoSnippet[] = [];
   let totalChars = 0;
 
   for (const file of ranked) {
-    if (totalChars >= maxPromptChars) break;
+    if (totalChars >= limits.maxPromptChars) break;
     const fullPath = path.join(rootPath, file.path);
     const content = await readFile(fullPath, "utf8").catch(() => "");
     if (!content.trim()) continue;
 
-    const clipped = content.slice(0, maxSnippetChars);
+    const clipped = content.slice(0, limits.maxSnippetChars);
     totalChars += clipped.length;
     snippets.push({ path: file.path, content: clipped });
   }
@@ -363,10 +376,27 @@ function scoreFile(file: IndexedFile) {
   return score;
 }
 
-function buildFileTree(files: IndexedFile[]) {
+function buildFileTree(files: IndexedFile[], limits: ScanLimits) {
   return files
-    .slice(0, maxIndexedFiles)
+    .slice(0, limits.maxIndexedFiles)
     .map((file) => `${file.path} (${file.kind}, ${file.language}, ${file.size} bytes)`)
+    .join("\n");
+}
+
+function buildCompactFileTree(files: IndexedFile[]) {
+  const byRoot = new Map<string, { count: number; kinds: Set<string> }>();
+  for (const file of files) {
+    const root = file.path.split("/")[0] ?? file.path;
+    const bucket = byRoot.get(root) ?? { count: 0, kinds: new Set<string>() };
+    bucket.count += 1;
+    bucket.kinds.add(file.kind);
+    byRoot.set(root, bucket);
+  }
+
+  return [...byRoot.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 48)
+    .map(([dir, meta]) => `${dir}/ (${meta.count} files, kinds: ${[...meta.kinds].join(", ")})`)
     .join("\n");
 }
 

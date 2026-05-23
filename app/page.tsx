@@ -77,6 +77,7 @@ export default function Home() {
     graph?: AnalysisResult["graph"];
     tasks?: AnalysisResult["tasks"];
     familiarity?: AnalysisResult["familiarity"];
+    managedAgent?: AnalysisResult["managedAgent"];
   };
 
   function sleep(ms: number) {
@@ -225,7 +226,8 @@ export default function Home() {
           jobId,
           graph: job.graph,
           tasks: job.tasks,
-          familiarity: job.familiarity
+          familiarity: job.familiarity,
+          managedAgent: job.managedAgent
         };
         setAnalysis(result);
         setCheckedCriteria({});
@@ -561,8 +563,16 @@ export default function Home() {
             )}
             <div className="flex items-center gap-1.5 rounded-full border border-blue-200/40 bg-blue-50/70 px-2.5 py-1 text-[11px] font-semibold text-blue-700 backdrop-blur-md dark:border-blue-500/25 dark:bg-blue-950/50 dark:text-blue-300">
               <Bot size={13} />
-              <span>AI Onboarding Mentor</span>
+              <span>Antigravity Managed Agent</span>
             </div>
+            {analysis?.managedAgent?.environmentId ? (
+              <span
+                className="hidden rounded-full border border-emerald-200/50 bg-emerald-50/70 px-2 py-1 text-[10px] font-semibold text-emerald-700 backdrop-blur-md dark:border-emerald-500/25 dark:bg-emerald-950/40 dark:text-emerald-300 md:inline"
+                title={`Interaction ${analysis.managedAgent.interactionId}`}
+              >
+                Remote sandbox active
+              </span>
+            ) : null}
             <ThemeToggle />
           </div>
         </header>

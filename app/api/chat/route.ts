@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAnalysis } from "@/lib/analysis-store";
-import { askMentor } from "@/lib/gemini";
+import { getAnalysis, getJob, updateJobManagedSession } from "@/lib/analysis-store";
+import { askMentorWithManagedSession } from "@/lib/gemini";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const ChatSchema = z.object({
   jobId: z.string().min(1),
@@ -25,6 +26,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Job not found or still processing." }, { status: 404 });
   }
 
+  const job = await getJob(parsed.data.jobId);
+
   const node = parsed.data.nodeId ? result.graph.nodes.find((item) => item.id === parsed.data.nodeId) : undefined;
   const task = parsed.data.taskId ? result.tasks.find((item) => item.id === parsed.data.taskId) : undefined;
 
@@ -44,7 +47,15 @@ export async function POST(request: Request) {
     2
   );
 
-  const answer = await askMentor(parsed.data.question, context);
+  const mentor = await askMentorWithManagedSession(parsed.data.question, context, job?.managedAgent ?? result.managedAgent);
 
-  return NextResponse.json({ answer });
+  if (mentor.session && mentor.session !== job?.managedAgent) {
+    await updateJobManagedSession(parsed.data.jobId, mentor.session);
+  }
+
+  return NextResponse.json({
+    answer: mentor.answer,
+    usedManagedAgent: mentor.usedManagedAgent,
+    managedAgent: mentor.session
+  });
 }

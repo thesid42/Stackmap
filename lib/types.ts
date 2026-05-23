@@ -78,6 +78,15 @@ export type AnalysisResult = {
   graph: StackMapGraph;
   tasks: OnboardingTask[];
   familiarity: FamiliarityScore;
+  managedAgent?: ManagedAgentSession;
+};
+
+export type ManagedAgentSession = {
+  agent: string;
+  interactionId: string;
+  environmentId?: string;
+  stepCount?: number;
+  bootstrappedAt?: string;
 };
 
 export type StoryModeScene = {

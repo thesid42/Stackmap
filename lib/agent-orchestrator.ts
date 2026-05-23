@@ -1,6 +1,7 @@
 import { getGeminiClient } from "@/lib/gemini";
+import { managedAgentsEnabled, runManagedStackMapAnalysis } from "@/lib/managed-agents";
 import { formatIndexForPrompt, type RepoIndex } from "@/lib/repo-indexer";
-import type { EngineerRole, GraphEdgeType, GraphNodeType, OnboardingTask, StackMapEdge, StackMapNode } from "@/lib/types";
+import type { EngineerRole, GraphEdgeType, GraphNodeType, ManagedAgentSession, OnboardingTask, StackMapEdge, StackMapNode } from "@/lib/types";
 
 export type AgentRunInput = {
   repoUrl: string;
@@ -77,12 +78,45 @@ Return JSON only. Do not include markdown.
 `;
 }
 
+export type OrchestrationResult = {
+  outputs: AgentPartialOutput[];
+  managedSession?: ManagedAgentSession;
+};
+
 export async function runAgentOrchestration(
   input: AgentRunInput,
-  onProgress?: (message: string) => void
-): Promise<AgentPartialOutput[]> {
+  onProgress?: (message: string) => void,
+  options?: { sourceType?: string; compactIndex?: boolean }
+): Promise<OrchestrationResult> {
+  if (managedAgentsEnabled()) {
+    try {
+      onProgress?.("Antigravity exploring repo in remote sandbox (unified analysis)...");
+      const managed = await runManagedStackMapAnalysis({
+        repoUrl: input.repoUrl,
+        role: input.role,
+        indexSummary: input.indexSummary,
+        fileTree: input.fileTree,
+        sourceType: options?.sourceType ?? "single_repo"
+      });
+      const parsed = parseAgentJson(managed.output);
+      if ((parsed.nodes?.length ?? 0) > 0 || (parsed.tasks?.length ?? 0) > 0) {
+        onProgress?.("Managed analysis complete.");
+        return {
+          managedSession: managed.session,
+          outputs: [
+            { agent: "managed-unified", nodes: parsed.nodes, edges: parsed.edges },
+            { agent: "task-workflow", tasks: parsed.tasks }
+          ]
+        };
+      }
+      console.warn("Managed analysis returned empty graph; falling back to specialist agents.");
+    } catch (error) {
+      console.warn("Managed orchestration failed; falling back to specialist agents.", error);
+    }
+  }
+
   const client = getGeminiClient();
-  if (!client) return [];
+  if (!client) return { outputs: [] };
 
   const outputs = await Promise.all(
     stackMapAgents.map(async (agent) => {
@@ -101,7 +135,7 @@ export async function runAgentOrchestration(
     })
   );
 
-  return outputs;
+  return { outputs };
 }
 
 function buildAgentPrompt(agent: (typeof stackMapAgents)[number], input: AgentRunInput) {
@@ -189,7 +223,7 @@ Rules:
 `.trim();
 }
 
-function parseAgentJson(raw: string): Omit<AgentPartialOutput, "agent"> {
+export function parseAgentJson(raw: string): Omit<AgentPartialOutput, "agent"> {
   const trimmed = raw.trim();
   if (!trimmed) return {};
 
@@ -253,12 +287,13 @@ export function buildOrchestratorInput(scan: {
   snippets: { path: string; content: string }[];
   index: RepoIndex;
   role: EngineerRole;
+  compactIndex?: boolean;
 }): AgentRunInput {
   return {
     repoUrl: scan.repo.displayUrl,
     role: scan.role,
     fileTree: scan.fileTree,
-    indexSummary: formatIndexForPrompt(scan.index),
+    indexSummary: formatIndexForPrompt(scan.index, { compact: scan.compactIndex }),
     snippets: scan.snippets
   };
 }

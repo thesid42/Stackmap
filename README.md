@@ -7,6 +7,7 @@ StackMap is an AI onboarding workspace for engineering teams. It turns a GitHub 
 - Paste a public GitHub repo URL (or use the built-in demo URL)
 - Select an onboarding role
 - Async analysis: clone → index → specialist Gemini agents → architecture graph
+- **Antigravity managed agent** (`interactions.create`, `environment: remote`) bootstraps a remote sandbox per repo; mentor chat continues the same session via `previous_interaction_id`
 - Role-specific onboarding missions with file evidence
 - Inspect services, files, evidence, and risks
 - Ask the mentor agent about the selected node or task
@@ -38,6 +39,10 @@ Create `.env.local`:
 ```bash
 GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-3.5-flash
+# Antigravity managed agent (Interactions API + remote sandbox)
+GEMINI_MANAGED_AGENT=antigravity-preview-05-2026
+# Set to 0 to disable managed agents and use generateContent only
+# STACKMAP_USE_MANAGED_AGENTS=0
 # STACKMAP_USE_SAMPLE=1   # force demo graph for any URL
 ```
 
@@ -52,12 +57,13 @@ Requires `git` on PATH. Only public `github.com` repos are supported for live an
 | `/api/analyze` | POST | Start job `{ repoUrl, role }` → `{ jobId, status: "processing" }` |
 | `/api/jobs/[jobId]` | GET | Poll job status, graph, tasks, familiarity |
 | `/api/tasks` | POST | Update mission status |
-| `/api/chat` | POST | Mentor chat with graph context |
+| `/api/chat` | POST | Mentor chat (Managed Agent when session exists) |
 
 ## Key files
 
 - `lib/analyzer.ts` — async job pipeline
-- `lib/agent-orchestrator.ts` — parallel Gemini specialist agents
+- `lib/managed-agents.ts` — Gemini Interactions API (`antigravity-preview-05-2026`, remote sandbox)
+- `lib/agent-orchestrator.ts` — parallel Gemini specialist agents (graph/missions)
 - `lib/graph-builder.ts` — merge agent output + index fallbacks
 - `lib/repo-indexer.ts` — monorepo services, import hints
 - `lib/repo-scanner.ts` — clone + scan
