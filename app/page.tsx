@@ -12,12 +12,13 @@ import {
   type Edge,
   type Node
 } from "@xyflow/react";
-import { BookOpenCheck, Bot, CheckCircle2, GitBranch, Loader2, Map, Radar, Send } from "lucide-react";
+import { BookOpenCheck, Bot, CheckCircle2, GitBranch, Loader2, Lock, Map, Radar, Send } from "lucide-react";
 import type { AnalysisResult, EngineerRole, OnboardingTask } from "@/lib/types";
 import { CustomArchitectureNode, nodeStyles } from "@/components/custom-node";
 import { FlowFitView } from "@/components/flow-fit-view";
 import { MentorMarkdown } from "@/components/mentor-markdown";
 import { layoutGraph } from "@/lib/graph-layout";
+import { getNextMission, isMissionLocked, missionProgress, sortMissions } from "@/lib/mission-path";
 
 const roleOptions: { label: string; value: EngineerRole }[] = [
   { label: "Backend Intern", value: "backend" },
@@ -45,7 +46,46 @@ export default function Home() {
   const [isAsking, setIsAsking] = useState(false);
   const [chatError, setChatError] = useState("");
   const [error, setError] = useState("");
+  const [checkedCriteria, setCheckedCriteria] = useState<Record<string, boolean[]>>({});
   const answerRef = useRef<HTMLDivElement>(null);
+
+  const missionPath = useMemo(() => {
+    if (!analysis) return null;
+    return missionProgress(analysis.tasks);
+  }, [analysis]);
+
+  const sortedTasks = missionPath?.sorted ?? [];
+
+  function githubFileUrl(filePath: string) {
+    if (!analysis?.graph.repo.url) return null;
+    const base = analysis.graph.repo.url.replace(/\.git$/i, "").replace(/\/$/, "");
+    return `${base}/blob/HEAD/${filePath}`;
+  }
+
+  function isTaskLocked(taskId: string) {
+    const index = sortedTasks.findIndex((task) => task.id === taskId);
+    if (index < 0) return false;
+    return isMissionLocked(sortedTasks, index);
+  }
+
+  function criteriaChecksFor(task: OnboardingTask) {
+    const existing = checkedCriteria[task.id];
+    if (existing && existing.length === task.successCriteria.length) return existing;
+    return task.successCriteria.map(() => false);
+  }
+
+  function allCriteriaChecked(task: OnboardingTask) {
+    const checks = criteriaChecksFor(task);
+    return task.successCriteria.length > 0 && checks.every(Boolean);
+  }
+
+  function toggleCriterion(task: OnboardingTask, index: number) {
+    setCheckedCriteria((prev) => {
+      const next = [...criteriaChecksFor(task)];
+      next[index] = !next[index];
+      return { ...prev, [task.id]: next };
+    });
+  }
 
   type JobPollResponse = {
     jobId: string;
@@ -62,7 +102,9 @@ export default function Home() {
   }
 
   const selectedNode = analysis?.graph.nodes.find((node) => node.id === selectedNodeId) ?? analysis?.graph.nodes[0];
-  const selectedTask = analysis?.tasks.find((task) => task.id === selectedTaskId) ?? analysis?.tasks[0];
+  const selectedTask =
+    sortedTasks.find((task) => task.id === selectedTaskId) ?? sortedTasks[0] ?? analysis?.tasks[0];
+  const nextMission = analysis ? getNextMission(analysis.tasks) : undefined;
 
   const flow = useMemo(() => {
     if (!analysis) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -72,22 +114,30 @@ export default function Home() {
       analysis.graph.edges
     );
 
-    const anyNodeSelected = !!selectedNodeId;
-    const activeNodeIds = new Set<string>();
+    const focusNodeIds = new Set<string>();
     const activeEdgeIds = new Set<string>();
 
     if (selectedNodeId) {
-      activeNodeIds.add(selectedNodeId);
+      focusNodeIds.add(selectedNodeId);
       analysis.graph.edges.forEach((edge) => {
         if (edge.source === selectedNodeId) {
-          activeNodeIds.add(edge.target);
+          focusNodeIds.add(edge.target);
           activeEdgeIds.add(edge.id);
         } else if (edge.target === selectedNodeId) {
-          activeNodeIds.add(edge.source);
+          focusNodeIds.add(edge.source);
+          activeEdgeIds.add(edge.id);
+        }
+      });
+    } else if (selectedTask?.relatedNodeIds?.length) {
+      selectedTask.relatedNodeIds.forEach((id) => focusNodeIds.add(id));
+      analysis.graph.edges.forEach((edge) => {
+        if (focusNodeIds.has(edge.source) && focusNodeIds.has(edge.target)) {
           activeEdgeIds.add(edge.id);
         }
       });
     }
+
+    const anyNodeSelected = focusNodeIds.size > 0;
 
     const nodes: Node[] = positionedNodes.map((node) => ({
       id: node.id,
@@ -99,18 +149,18 @@ export default function Home() {
         summary: node.summary,
         files: node.files,
         risks: node.risks,
-        isFocused: !selectedNodeId || activeNodeIds.has(node.id),
+        isFocused: !anyNodeSelected || focusNodeIds.has(node.id),
         anyNodeSelected
       }
     }));
 
     const edges: Edge[] = layoutEdges.map((edge) => {
-      const isActive = !selectedNodeId || activeEdgeIds.has(edge.id);
+      const isActive = !anyNodeSelected || activeEdgeIds.has(edge.id);
       let edgeColor = "#94a3b8";
       let edgeWidth = 1.8;
       let edgeClass = "";
 
-      if (selectedNodeId) {
+      if (anyNodeSelected) {
         if (isActive) {
           edgeWidth = 2.8;
           if (edge.type === "depends_on") {
@@ -143,7 +193,7 @@ export default function Home() {
         target: edge.target,
         label: edge.label,
         type: "smoothstep",
-        animated: edge.type === "publishes" || edge.type === "routes_to" || (!!selectedNodeId && isActive),
+        animated: edge.type === "publishes" || edge.type === "routes_to" || (anyNodeSelected && isActive),
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: edgeColor,
@@ -163,7 +213,7 @@ export default function Home() {
     });
 
     return { nodes, edges };
-  }, [analysis, selectedNodeId]);
+  }, [analysis, selectedNodeId, selectedTask]);
 
   async function pollJob(jobId: string) {
     for (let attempt = 0; attempt < 120; attempt++) {
@@ -189,8 +239,10 @@ export default function Home() {
           familiarity: job.familiarity
         };
         setAnalysis(result);
-        setSelectedNodeId(result.graph.nodes[0]?.id ?? null);
-        setSelectedTaskId(result.tasks[0]?.id ?? null);
+        setCheckedCriteria({});
+        const firstMission = getNextMission(result.tasks) ?? sortMissions(result.tasks)[0];
+        setSelectedNodeId(null);
+        setSelectedTaskId(firstMission?.id ?? null);
         return;
       }
 
@@ -482,62 +534,88 @@ export default function Home() {
             <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr_1fr] items-start">
               {/* Column 1: Onboarding Missions */}
               <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <BookOpenCheck size={18} className="text-emerald-700" />
-                  <h2 className="font-semibold text-slate-900">Onboarding Missions</h2>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <BookOpenCheck size={18} className="text-emerald-700" />
+                    <h2 className="font-semibold text-slate-900">Week-1 Path</h2>
+                  </div>
+                  {missionPath ? (
+                    <span className="text-[11px] font-bold text-slate-500">
+                      {missionPath.done}/{missionPath.total} done
+                    </span>
+                  ) : null}
                 </div>
-                
+                {missionPath && missionPath.total > 0 ? (
+                  <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-emerald-600 transition-all"
+                      style={{ width: `${Math.round((missionPath.done / missionPath.total) * 100)}%` }}
+                    />
+                  </div>
+                ) : null}
+                {nextMission ? (
+                  <p className="mb-3 rounded-md border border-blue-100 bg-blue-50/80 px-2.5 py-2 text-[11px] font-medium text-blue-900">
+                    Up next — Step {nextMission.order}: {nextMission.title}
+                  </p>
+                ) : null}
+
                 <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                  {analysis.tasks.map((task) => {
+                  {sortedTasks.map((task, index) => {
                     const isSelected = selectedTaskId === task.id;
                     const isDone = task.status === "done";
+                    const locked = isMissionLocked(sortedTasks, index);
+                    const isCurrent = nextMission?.id === task.id;
                     return (
                       <button
                         key={task.id}
-                        onClick={() => setSelectedTaskId(task.id)}
-                        className={`w-full text-left rounded-lg p-3.5 transition-all duration-150 border ${
-                          isSelected
-                            ? "bg-blue-50/60 border-blue-200 shadow-sm"
-                            : "bg-white border-slate-100 hover:bg-slate-50/80 hover:border-slate-200"
-                        } flex items-start gap-3`}
+                        type="button"
+                        disabled={locked}
+                        onClick={() => {
+                          if (locked) return;
+                          setSelectedTaskId(task.id);
+                          setSelectedNodeId(null);
+                        }}
+                        className={`w-full text-left rounded-lg p-3.5 transition-all duration-150 border flex items-start gap-3 ${
+                          locked
+                            ? "cursor-not-allowed border-slate-100 bg-slate-50/80 opacity-60"
+                            : isSelected
+                              ? "bg-blue-50/60 border-blue-200 shadow-sm"
+                              : "bg-white border-slate-100 hover:bg-slate-50/80 hover:border-slate-200"
+                        } ${isCurrent && !locked ? "ring-1 ring-emerald-300/80" : ""}`}
                       >
-                        {/* Status Checkbox */}
-                        <div className="mt-1 flex-shrink-0">
-                          {isDone ? (
-                            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
-                              ✓
-                            </span>
-                          ) : (
-                            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full border border-slate-300 bg-white" />
-                          )}
+                        <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-[10px] font-bold text-slate-600">
+                          {locked ? <Lock size={12} className="text-slate-400" /> : isDone ? "✓" : task.order ?? index + 1}
                         </div>
-                        
+
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="rounded bg-slate-100/90 text-slate-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
                               {task.area}
                             </span>
-                            <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                              task.difficulty === "easy" 
-                                ? "bg-emerald-50 text-emerald-700" 
-                                : task.difficulty === "medium" 
-                                  ? "bg-amber-50 text-amber-700" 
-                                  : "bg-rose-50 text-rose-700"
-                            }`}>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                                task.difficulty === "easy"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : task.difficulty === "medium"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-rose-50 text-rose-700"
+                              }`}
+                            >
                               {task.difficulty}
                             </span>
+                            {isCurrent && !isDone ? (
+                              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-800">
+                                Current
+                              </span>
+                            ) : null}
                           </div>
-                          
-                          <h4 className="mt-2 text-[13px] font-bold text-slate-800 line-clamp-1 leading-snug">
-                            {task.title}
-                          </h4>
-                          <p className="mt-1 text-[11px] leading-[15px] text-slate-500 line-clamp-2">
-                            {task.description}
-                          </p>
+
+                          <h4 className="mt-2 text-[13px] font-bold text-slate-800 line-clamp-1 leading-snug">{task.title}</h4>
+                          <p className="mt-1 text-[11px] leading-[15px] text-slate-500 line-clamp-2">{task.description}</p>
                           <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
                             <span>⏱️ {task.estimatedMinutes} min</span>
-                            <span className={isDone ? "text-emerald-600" : "text-slate-500"}>
-                              {task.status.replace("_", " ")}
+                            <span className={isDone ? "text-emerald-600" : locked ? "text-slate-400" : "text-slate-500"}>
+                              {locked ? "locked" : task.status.replace("_", " ")}
                             </span>
                           </div>
                         </div>
@@ -552,25 +630,30 @@ export default function Home() {
                 <h2 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100">Mission Detail</h2>
                 {selectedTask ? (
                   <div className="space-y-4">
+                    {isTaskLocked(selectedTask.id) ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Complete the previous mission to unlock this step.
+                      </p>
+                    ) : null}
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                          selectedTask.difficulty === "easy"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
-                            : selectedTask.difficulty === "medium"
-                              ? "bg-amber-50 text-amber-700 border border-amber-200/50"
-                              : "bg-rose-50 text-rose-700 border border-rose-200/50"
-                        }`}>
-                          {selectedTask.difficulty} difficulty
+                        <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                          Step {selectedTask.order ?? "?"}
                         </span>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Task</span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                            selectedTask.difficulty === "easy"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
+                              : selectedTask.difficulty === "medium"
+                                ? "bg-amber-50 text-amber-700 border border-amber-200/50"
+                                : "bg-rose-50 text-rose-700 border border-rose-200/50"
+                          }`}
+                        >
+                          {selectedTask.difficulty}
+                        </span>
                       </div>
-                      <h3 className="mt-2.5 text-[15px] font-bold text-slate-900 leading-snug">
-                        {selectedTask.title}
-                      </h3>
-                      <p className="mt-2 text-xs leading-[17px] text-slate-500">
-                        {selectedTask.description}
-                      </p>
+                      <h3 className="mt-2.5 text-[15px] font-bold text-slate-900 leading-snug">{selectedTask.title}</h3>
+                      <p className="mt-2 text-xs leading-[17px] text-slate-500">{selectedTask.description}</p>
                     </div>
 
                     <div className="border-t border-slate-100 pt-3">
@@ -578,51 +661,93 @@ export default function Home() {
                         Success Criteria
                       </h4>
                       <ul className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
-                        {selectedTask.successCriteria.map((item) => (
-                          <li
-                            key={item}
-                            className="flex items-start gap-2.5 text-[11px] text-slate-600 leading-[15px]"
-                          >
-                            <span className="mt-0.5 flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold">
-                              ✓
-                            </span>
-                            <span>{item}</span>
-                          </li>
-                        ))}
+                        {selectedTask.successCriteria.map((item, criterionIndex) => {
+                          const checked = criteriaChecksFor(selectedTask)[criterionIndex];
+                          return (
+                            <li key={item} className="flex items-start gap-2.5 text-[11px] text-slate-600 leading-[15px]">
+                              <button
+                                type="button"
+                                disabled={isTaskLocked(selectedTask.id) || selectedTask.status === "done"}
+                                onClick={() => toggleCriterion(selectedTask, criterionIndex)}
+                                className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-[9px] font-bold ${
+                                  checked
+                                    ? "border-emerald-500 bg-emerald-500 text-white"
+                                    : "border-slate-300 bg-white text-transparent"
+                                }`}
+                                aria-label={checked ? "Uncheck criterion" : "Check criterion"}
+                              >
+                                ✓
+                              </button>
+                              <span className={checked ? "text-slate-800" : ""}>{item}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
 
                     {selectedTask.filesToRead && selectedTask.filesToRead.length > 0 && (
                       <div className="border-t border-slate-100 pt-3">
-                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                          Files to Trace
-                        </h4>
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Files to Trace</h4>
                         <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
-                          {selectedTask.filesToRead.map((file) => (
-                            <div
-                              key={file}
-                              className="font-mono text-[10px] bg-slate-50 border border-slate-100/80 px-2 py-1.5 rounded text-slate-600 flex items-center gap-1.5 truncate shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
-                              title={file}
-                            >
-                              <span className="text-slate-400">📄</span>
-                              {file}
-                            </div>
-                          ))}
+                          {selectedTask.filesToRead.map((file) => {
+                            const href = githubFileUrl(file);
+                            return href ? (
+                              <a
+                                key={file}
+                                href={href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-mono text-[10px] bg-slate-50 border border-slate-100/80 px-2 py-1.5 rounded text-blue-700 flex items-center gap-1.5 truncate hover:bg-blue-50"
+                                title={file}
+                              >
+                                <span className="text-slate-400">📄</span>
+                                {file}
+                              </a>
+                            ) : (
+                              <div
+                                key={file}
+                                className="font-mono text-[10px] bg-slate-50 border border-slate-100/80 px-2 py-1.5 rounded text-slate-600 truncate"
+                                title={file}
+                              >
+                                {file}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
 
-                    <div className="border-t border-slate-100 pt-3">
+                    <div className="border-t border-slate-100 pt-3 space-y-2">
                       <button
+                        type="button"
+                        onClick={() => {
+                          setQuestion(`Help me complete this mission: ${selectedTask.title}`);
+                          setSelectedNodeId(null);
+                        }}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Bot size={13} />
+                        Ask mentor about this mission
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          isTaskLocked(selectedTask.id) ||
+                          (selectedTask.status !== "done" && !allCriteriaChecked(selectedTask))
+                        }
                         onClick={() => updateTask(selectedTask.id, selectedTask.status === "done" ? "todo" : "done")}
-                        className={`flex w-full items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-xs font-semibold shadow-sm transition-all duration-150 ${
+                        className={`flex w-full items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-xs font-semibold shadow-sm transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
                           selectedTask.status === "done"
                             ? "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
                             : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-100/50"
                         }`}
                       >
                         <CheckCircle2 size={13} className="stroke-[2.5]" />
-                        {selectedTask.status === "done" ? "Re-open Mission" : "Mark Mission Done"}
+                        {selectedTask.status === "done"
+                          ? "Re-open Mission"
+                          : allCriteriaChecked(selectedTask)
+                            ? "Mark Mission Done"
+                            : "Check all criteria to complete"}
                       </button>
                     </div>
                   </div>

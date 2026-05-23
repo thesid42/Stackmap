@@ -54,6 +54,8 @@ export type EngineerRole = "frontend" | "backend" | "fullstack" | "infra" | "qa"
 
 export type OnboardingTask = {
   id: string;
+  /** Week-1 path order (1 = first mission). */
+  order?: number;
   title: string;
   difficulty: "easy" | "medium" | "hard";
   area: "architecture" | "frontend" | "backend" | "api" | "data" | "testing" | "infra" | "risk";

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getNextMission } from "@/lib/mission-path";
 import type { AnalysisResult, EngineerRole, FamiliarityScore, OnboardingTask, StackMapGraph } from "@/lib/types";
 
 export type JobStatus = "processing" | "complete" | "failed";
@@ -177,7 +178,11 @@ export function calculateFamiliarity(tasks: OnboardingTask[]): FamiliarityScore 
       infra: scoreArea(tasks, "infra"),
       riskAwareness: scoreArea(tasks, "risk")
     },
-    suggestedNextStep: tasks.find((task) => task.status !== "done")?.title ?? "Pick a real starter issue and make a first PR."
+    suggestedNextStep: (() => {
+      const next = getNextMission(tasks);
+      if (!next) return "All missions complete — pick a real starter issue and open a PR.";
+      return `Step ${next.order ?? "?"}: ${next.title}`;
+    })()
   };
 }
 

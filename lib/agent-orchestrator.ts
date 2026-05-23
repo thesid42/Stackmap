@@ -122,6 +122,7 @@ function buildAgentPrompt(agent: (typeof stackMapAgents)[number], input: AgentRu
     tasks: [
       {
         id: "task-id",
+        order: 1,
         title: "Mission",
         difficulty: "easy | medium | hard",
         area: "architecture | frontend | backend | api | data | testing | infra | risk",
@@ -138,7 +139,7 @@ function buildAgentPrompt(agent: (typeof stackMapAgents)[number], input: AgentRu
 
   const focus =
     agent.id === "task-workflow"
-      ? "Return tasks[] as the primary output (at least 3 missions for the role). You may include supporting nodes."
+      ? "Return tasks[] as the primary output (4-5 missions for the role). Each task needs order (1,2,3...) easy→hard. filesToRead must be real paths from the index. You may include supporting nodes."
       : agent.id === "dependency"
         ? "Prioritize edges[] between nodes with import/call relationships."
         : agent.id === "risk"
@@ -201,6 +202,7 @@ function parseAgentJson(raw: string): Omit<AgentPartialOutput, "agent"> {
         filesToRead: Array.isArray(task.filesToRead) ? task.filesToRead.map(String) : [],
         successCriteria: Array.isArray(task.successCriteria) ? task.successCriteria.map(String) : [],
         estimatedMinutes: Number(task.estimatedMinutes ?? 20),
+        order: typeof task.order === "number" ? task.order : undefined,
         relatedNodeIds: Array.isArray(task.relatedNodeIds) ? task.relatedNodeIds.map(String) : [],
         status: (task.status ?? "todo") as OnboardingTask["status"]
       })),

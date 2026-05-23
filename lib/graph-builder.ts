@@ -1,5 +1,6 @@
 import type { AgentPartialOutput } from "@/lib/agent-orchestrator";
 import { extractImportHints, type ImportHint, type RepoIndex, type RepoService } from "@/lib/repo-indexer";
+import { assignMissionOrder } from "@/lib/mission-path";
 import type { EngineerRole, OnboardingTask, StackMapEdge, StackMapGraph, StackMapNode } from "@/lib/types";
 
 export type GraphBuildInput = {
@@ -269,9 +270,10 @@ function buildDefaultTasks(role: EngineerRole, nodes: StackMapNode[]): Onboardin
   const nodeIds = nodes.slice(0, 4).map((node) => node.id);
   const roleArea = role === "frontend" ? "frontend" : role === "infra" ? "infra" : role === "qa" ? "testing" : "backend";
 
-  return [
+  return assignMissionOrder([
     {
       id: "task-map-repo",
+      order: 1,
       title: "Read the architecture map",
       difficulty: "easy",
       area: "architecture",
@@ -284,6 +286,7 @@ function buildDefaultTasks(role: EngineerRole, nodes: StackMapNode[]): Onboardin
     },
     {
       id: "task-trace-flow",
+      order: 2,
       title: "Trace one user-facing flow",
       difficulty: "medium",
       area: roleArea,
@@ -294,15 +297,16 @@ function buildDefaultTasks(role: EngineerRole, nodes: StackMapNode[]): Onboardin
       relatedNodeIds: nodeIds,
       status: "todo"
     }
-  ];
+  ]);
 }
 
 function dedupeTasks(tasks: OnboardingTask[], nodeIds: Set<string>) {
   const seen = new Set<string>();
-  return tasks
+  const normalized = tasks
     .filter((task) => task.id && task.title && !seen.has(task.id) && (seen.add(task.id), true))
     .map((task) => ({
       ...task,
+      order: typeof task.order === "number" ? task.order : undefined,
       filesToRead: cleanFiles(task.filesToRead),
       successCriteria:
         Array.isArray(task.successCriteria) && task.successCriteria.length
@@ -311,6 +315,8 @@ function dedupeTasks(tasks: OnboardingTask[], nodeIds: Set<string>) {
       relatedNodeIds: (task.relatedNodeIds ?? []).filter((id) => nodeIds.has(id)),
       status: task.status ?? "todo"
     }));
+
+  return assignMissionOrder(normalized);
 }
 
 function cleanFiles(files: string[] | undefined) {

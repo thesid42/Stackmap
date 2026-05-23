@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { assignMissionOrder } from "@/lib/mission-path";
 import type { AnalysisResult, EngineerRole, OnboardingTask, StackMapGraph } from "@/lib/types";
 
 export const sampleGraph: StackMapGraph = {
@@ -87,6 +88,7 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
   const base: OnboardingTask[] = [
     {
       id: "task-map",
+      order: 1,
       title: "Read the platform map",
       difficulty: "easy",
       area: "architecture",
@@ -99,6 +101,7 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
     },
     {
       id: "task-login",
+      order: 2,
       title: "Trace login from UI to session",
       difficulty: "medium",
       area: "backend",
@@ -111,6 +114,7 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
     },
     {
       id: "task-first-pr",
+      order: 3,
       title: "Make a safe first contribution",
       difficulty: "medium",
       area: role === "frontend" ? "frontend" : "testing",
@@ -123,6 +127,7 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
     },
     {
       id: "task-events",
+      order: 4,
       title: "Understand event-driven emails",
       difficulty: "hard",
       area: "architecture",
@@ -135,7 +140,7 @@ export function buildTasks(role: EngineerRole): OnboardingTask[] {
     }
   ];
 
-  return base;
+  return assignMissionOrder(base);
 }
 
 export function buildAnalysisResult(
